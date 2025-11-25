@@ -65,7 +65,13 @@ module ibex_tracer (
   input logic [ 3:0] rvfi_mem_rmask,
   input logic [ 3:0] rvfi_mem_wmask,
   input logic [31:0] rvfi_mem_rdata,
-  input logic [31:0] rvfi_mem_wdata
+  input logic [31:0] rvfi_mem_wdata,
+  // Exception cause from core for detailed trap reporting
+  input ibex_pkg::exc_cause_t exc_cause,
+  input logic                exc_cause_valid,
+  // RVFI extension: MIP state before/after, can help infer interrupt source
+  input logic [31:0] rvfi_ext_pre_mip,
+  input logic [31:0] rvfi_ext_post_mip
 );
 
   // These signals are part of RVFI, but not used in this module currently.
@@ -80,6 +86,7 @@ module ibex_tracer (
   logic [ 1:0] unused_rvfi_ixl = rvfi_ixl;
 
   import ibex_tracer_pkg::*;
+  import ibex_pkg::*;
 
   int          file_handle;
   string       file_name;
@@ -106,6 +113,22 @@ module ibex_tracer (
       trace_log_enable = 1'b1;
     end
   end
+
+  function automatic int mem_width_bytes(input logic [3:0] mask);
+    // Return number of accessed bytes as width (0..4)
+    return $countones(mask);
+  endfunction
+
+  function automatic logic [31:0] exc_cause_to_mcause(input ibex_pkg::exc_cause_t cause);
+    logic [31:0] result;
+    logic        is_interrupt;
+
+    is_interrupt    = cause.irq_ext | cause.irq_int;
+    result[31]      = is_interrupt;
+    result[30:5]    = cause.irq_int ? {26{1'b1}} : 26'b0;
+    result[4:0]     = cause.lower_cause;
+    return result;
+  endfunction
 
   function automatic void printbuffer_dumpline(int fh);
     string rvfi_insn_str;
@@ -134,15 +157,52 @@ module ibex_tracer (
       $fwrite(fh, " %s=0x%08x", reg_addr_to_str(rvfi_rd_addr), rvfi_rd_wdata);
     end
     if ((data_accessed & MEM) != 0) begin
+      int wsize;
+      int rsize;
+      wsize = mem_width_bytes(rvfi_mem_wmask);
+      rsize = mem_width_bytes(rvfi_mem_rmask);
+
       $fwrite(fh, " PA:0x%08x", rvfi_mem_addr);
 
       if (rvfi_mem_wmask != 4'b0000) begin
-        $fwrite(fh, " store:0x%08x", rvfi_mem_wdata);
+        $fwrite(fh, " store:0x%08x wmask:0x%0x wsize:%0d", rvfi_mem_wdata, rvfi_mem_wmask, wsize);
       end
       if (rvfi_mem_rmask != 4'b0000) begin
-        $fwrite(fh, " load:0x%08x", rvfi_mem_rdata);
+        $fwrite(fh, " load:0x%08x rmask:0x%0x rsize:%0d", rvfi_mem_rdata, rvfi_mem_rmask, rsize);
       end
     end
+
+    // Trap/interrupt/halt indicators (from RVFI)
+    if (rvfi_trap) $fwrite(fh, " TRAP");
+    if (rvfi_intr) $fwrite(fh, " INTR");
+    if (rvfi_trap || rvfi_intr) begin
+      logic       have_cause;
+      logic [31:0] mcause_val;
+
+      have_cause = exc_cause_valid;
+      if (have_cause) begin
+        mcause_val = exc_cause_to_mcause(exc_cause);
+      end else if (rvfi_intr) begin
+        // Fall back to MIP inference if the registered cause is not yet valid.
+        logic [4:0] cause_code;
+        if (rvfi_ext_post_mip[7])       cause_code = 5'd7;   // MTIP
+        else if (rvfi_ext_post_mip[3])  cause_code = 5'd3;   // MSIP
+        else if (rvfi_ext_post_mip[11]) cause_code = 5'd11;  // MEIP
+        else                             cause_code = exc_cause.lower_cause; // fallback
+        mcause_val = {1'b1, 26'h0, cause_code};
+        have_cause = 1'b1;
+      end else begin
+        // This path should be rare; log the best info we have and emit a warning so issues surface.
+        mcause_val = exc_cause_to_mcause(exc_cause);
+        have_cause = 1'b1;
+        $warning("Ibex tracer: missing exc_cause_valid for trap at PC 0x%08x", rvfi_pc_rdata);
+      end
+
+      if (have_cause) begin
+        $fwrite(fh, " mcause:0x%08x", mcause_val);
+      end
+    end
+    if (rvfi_halt) $fwrite(fh, " HALT");
 
     $fwrite(fh, "\n");
   endfunction

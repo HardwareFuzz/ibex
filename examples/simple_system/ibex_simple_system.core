@@ -170,6 +170,9 @@ targets:
         verilator_options:
           # Disabling tracing reduces compile times but doesn't have a
           # huge influence on runtime performance.
+          # Newer Verilator versions treat some warnings as fatal by default.
+          # Relax this to avoid build failure on benign warnings.
+          - '-Wno-fatal'
           - '--trace'
           - '--trace-fst' # this requires -DVM_TRACE_FMT_FST in CFLAGS below!
           - '--trace-structs'

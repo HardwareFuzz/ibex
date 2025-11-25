@@ -1,0 +1,309 @@
+
+skiptrap.elf:     file format elf32-littleriscv
+skiptrap.elf
+architecture: riscv:rv32, flags 0x00000112:
+EXEC_P, HAS_SYMS, D_PAGED
+start address 0x00100080
+
+Program Header:
+0x70000003 off    0x00001174 vaddr 0x00000000 paddr 0x00000000 align 2**0
+         filesz 0x00000056 memsz 0x00000000 flags r--
+    LOAD off    0x00001000 vaddr 0x00100000 paddr 0x00100000 align 2**12
+         filesz 0x00000174 memsz 0x00000190 flags rwx
+    LOAD off    0x00001000 vaddr 0x00130000 paddr 0x00130000 align 2**12
+         filesz 0x00000000 memsz 0x00002000 flags rw-
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .vectors      00000072  00100000  00100000  00001000  2**7
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  1 .text         000000f2  00100074  00100074  00001074  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .rodata       00000002  00100166  00100166  00001166  2**0
+                  ALLOC
+  3 .data         00000004  00100170  00100170  00001170  2**4
+                  CONTENTS, ALLOC, LOAD, DATA
+  4 .bss          00000010  00100180  00100180  00001174  2**4
+                  ALLOC
+  5 .stack        00002000  00130000  00130000  00002000  2**0
+                  ALLOC
+  6 .riscv.attributes 00000056  00000000  00000000  00001174  2**0
+                  CONTENTS, READONLY
+  7 .debug_line   000001d4  00000000  00000000  000011ca  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+  8 .debug_line_str 0000002f  00000000  00000000  0000139e  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+  9 .debug_info   00000023  00000000  00000000  000013cd  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 10 .debug_abbrev 00000012  00000000  00000000  000013f0  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 11 .debug_aranges 00000028  00000000  00000000  00001408  2**3
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 12 .debug_str    0000003b  00000000  00000000  00001430  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 13 .debug_rnglists 0000001b  00000000  00000000  0000146b  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+SYMBOL TABLE:
+00100000 l    d  .vectors	00000000 .vectors
+00100074 l    d  .text	00000000 .text
+00100166 l    d  .rodata	00000000 .rodata
+00100170 l    d  .data	00000000 .data
+00100180 l    d  .bss	00000000 .bss
+00130000 l    d  .stack	00000000 .stack
+00000000 l    d  .riscv.attributes	00000000 .riscv.attributes
+00000000 l    d  .debug_line	00000000 .debug_line
+00000000 l    d  .debug_line_str	00000000 .debug_line_str
+00000000 l    d  .debug_info	00000000 .debug_info
+00000000 l    d  .debug_abbrev	00000000 .debug_abbrev
+00000000 l    d  .debug_aranges	00000000 .debug_aranges
+00000000 l    d  .debug_str	00000000 .debug_str
+00000000 l    d  .debug_rnglists	00000000 .debug_rnglists
+00000000 l    df *ABS*	00000000 ccvU5hVv.o
+00100114 l       .text	00000000 trap_handler
+00100094 l       .text	00000000 user_code
+00100180 l       .bss	00000000 mem_buf
+00100170 l       .data	00000000 amo_loc
+00100104 l       .text	00000000 exit
+00100142 l       .text	00000000 use_mtval
+00100154 l       .text	00000000 update_mepc
+00100144 l       .text	00000000 decode_length
+00100152 l       .text	00000000 compressed_len
+00008000 g       *ABS*	00000000 _stack_len
+00100180 g       .bss	00000000 _bss_start
+00132000 g       .stack	00000000 stack
+00100080 g       *ABS*	00000000 _entry_point
+00100190 g       .bss	00000000 _bss_end
+00100074 g       .text	00000000 _start
+00100072 g       .vectors	00000000 _vectors_end
+00138000 g       .vectors	00000000 _stack_start
+00002000 g       *ABS*	00000000 _min_stack
+00138010 g       *ABS*	00000000 fromhost
+00020008 g       *ABS*	00000000 tohost
+00132000 g       .stack	00000000 _stack
+00100000 g       .vectors	00000000 _vectors_start
+
+
+
+Disassembly of section .vectors:
+
+00100000 <_vectors_start>:
+    .align  4
+    /* Simple System resets mtvec to the start of .vectors (0x0010_0000).
+     * Place a trampoline here that jumps to the real trap handler in .text.
+     * Pad to 0x80 bytes so .text starts at 0x0010_0080 as expected.
+     */
+    j       trap_handler
+  100000:	1140006f          	jal	zero,100114 <trap_handler>
+	...
+
+Disassembly of section .text:
+
+00100074 <_start>:
+ * - Executes a compressed breakpoint and a 32-bit illegal instruction
+ *   to exercise both paths, then reports pass via tohost (0x20008) and spins.
+ */
+_start:
+    /* mtvec already points to .vectors (0x0010_0000) in Simple System. */
+    la      t0, trap_handler
+  100074:	00000297          	auipc	t0,0x0
+  100078:	0a028293          	addi	t0,t0,160 # 100114 <trap_handler>
+    csrw    mtvec, t0
+  10007c:	30529073          	csrrw	zero,mtvec,t0
+    /* Allow FP regs (if present): set mstatus.FS=Dirty and clear fcsr. */
+    csrr    t0, mstatus
+  100080:	300022f3          	csrrs	t0,mstatus,zero
+    li      t1, 0x00003000
+  100084:	630d                	c.lui	t1,0x3
+    or      t0, t0, t1
+  100086:	0062e2b3          	or	t0,t0,t1
+    csrw    mstatus, t0
+  10008a:	30029073          	csrrw	zero,mstatus,t0
+    csrw    fcsr, x0
+  10008e:	00301073          	csrrw	zero,fcsr,zero
+    j       user_code
+  100092:	a009                	c.j	100094 <user_code>
+
+00100094 <user_code>:
+
+user_code:
+    /* ------------------------------------------------------------ */
+    /* X register writes (simple ALU)                               */
+    /* ------------------------------------------------------------ */
+    li      a0, 42
+  100094:	02a00513          	addi	a0,zero,42
+    addi    a1, a0, 5
+  100098:	00550593          	addi	a1,a0,5
+    lui     a2, 0x12345
+  10009c:	12345637          	lui	a2,0x12345
+    add     a3, a1, a0
+  1000a0:	00a586b3          	add	a3,a1,a0
+    xor     a4, a3, a2
+  1000a4:	00c6c733          	xor	a4,a3,a2
+
+    /* ------------------------------------------------------------ */
+    /* Memory writes (I extension)                                  */
+    /* ------------------------------------------------------------ */
+    la      t2, mem_buf
+  1000a8:	00000397          	auipc	t2,0x0
+  1000ac:	0d838393          	addi	t2,t2,216 # 100180 <_bss_start>
+    sw      a0, 0(t2)          /* aligned word store */
+  1000b0:	00a3a023          	sw	a0,0(t2)
+    sh      a1, 4(t2)          /* aligned half store */
+  1000b4:	00b39223          	sh	a1,4(t2)
+    sb      a4, 6(t2)          /* byte store */
+  1000b8:	00e38323          	sb	a4,6(t2)
+
+    /* ------------------------------------------------------------ */
+    /* AMOs (A extension). If A not present, these trap & skip.     */
+    /* ------------------------------------------------------------ */
+    la      t3, amo_loc
+  1000bc:	00000e17          	auipc	t3,0x0
+  1000c0:	0b4e0e13          	addi	t3,t3,180 # 100170 <amo_loc>
+    li      t4, 1
+  1000c4:	4e85                	c.li	t4,1
+    amoadd.w t5, t4, (t3)      /* t5 <- old, mem <- old + 1 */
+  1000c6:	01de2f2f          	amoadd.w	t5,t4,(t3)
+    amoswap.w t6, a0, (t3)     /* t6 <- old, mem <- a0 */
+  1000ca:	08ae2faf          	amoswap.w	t6,a0,(t3)
+
+    /* ------------------------------------------------------------ */
+    /* F register writes + memory (F extension). Without F -> trap. */
+    /* ------------------------------------------------------------ */
+    li      a5, 0x3f800000     /* 1.0f */
+  1000ce:	3f8007b7          	lui	a5,0x3f800
+    fmv.w.x ft0, a5
+  1000d2:	f0078053          	fmv.w.x	ft0,a5
+    fsw     ft0, 8(t2)         /* mem_buf[8] = 1.0f */
+  1000d6:	0003a427          	fsw	ft0,8(t2)
+    flw     ft1, 8(t2)
+  1000da:	0083a087          	flw	ft1,8(t2)
+    fadd.s  ft2, ft1, ft0
+  1000de:	0000f153          	fadd.s	ft2,ft1,ft0
+    fsw     ft2, 12(t2)        /* mem_buf[12] = 2.0f (if F exists) */
+  1000e2:	0023a627          	fsw	ft2,12(t2)
+
+    /* ------------------------------------------------------------ */
+    /* Traps of different kinds                                     */
+    /* ------------------------------------------------------------ */
+    c.ebreak                    /* Breakpoint (cause=3) */
+  1000e6:	9002                	c.ebreak
+    ecall                       /* Env call from M-mode (cause=11) */
+  1000e8:	00000073          	ecall
+  1000ec:	ffffffff          	.word	0xffffffff
+    .word   0xffffffff          /* Illegal instruction (cause=2) */
+    /* Misaligned data access (cause=6 for store, 4 for load) */
+    sw      a0, 1(t2)           /* misaligned store -> trap */
+  1000f0:	00a3a0a3          	sw	a0,1(t2)
+    lw      a7, 2(t2)           /* misaligned load  -> trap */
+  1000f4:	0023a883          	lw	a7,2(t2)
+    /* Illegal CSR write to read-only CSR (cause=2) */
+    csrw    mvendorid, x0
+  1000f8:	f1101073          	csrrw	zero,mvendorid,zero
+    /* SRET in M-mode (cause=2) */
+    .insn   i 0x73, 0, x0, x0, 0x102 /* sret encoding */
+  1000fc:	10200073          	sret
+
+    /* ------------------------------------------------------------ */
+    /* Reached only if all traps skipped correctly                  */
+    /* ------------------------------------------------------------ */
+    addi    t0, x0, 1
+  100100:	4285                	c.li	t0,1
+    addi    t0, t0, 1
+  100102:	0285                	c.addi	t0,1
+
+00100104 <exit>:
+
+exit:
+    /* Report success (1) via HTIF tohost then spin */
+    li      t0, 1
+  100104:	4285                	c.li	t0,1
+    la      t1, tohost
+  100106:	fff20317          	auipc	t1,0xfff20
+  10010a:	f0230313          	addi	t1,t1,-254 # 20008 <tohost>
+    sw      t0, 0(t1)
+  10010e:	00532023          	sw	t0,0(t1)
+1:
+    j       1b
+  100112:	a001                	c.j	100112 <exit+0xe>
+
+00100114 <trap_handler>:
+
+    .align  2
+trap_handler:
+    csrr    t0, mepc             /* faulting PC */
+  100114:	341022f3          	csrrs	t0,mepc,zero
+    csrr    t1, mcause           /* trap cause */
+  100118:	34202373          	csrrs	t1,mcause,zero
+    csrr    t4, mtval
+  10011c:	34302ef3          	csrrs	t4,mtval,zero
+
+    /* strip interrupt bit */
+    slli    t5, t1, 1
+  100120:	00131f13          	slli	t5,t1,0x1
+    srli    t1, t5, 1
+  100124:	001f5313          	srli	t1,t5,0x1
+
+    /* default length assumes compressed (2 bytes) */
+    li      t2, 2
+  100128:	4389                	c.li	t2,2
+
+    /* For these causes, mtval may hold the instruction encoding */
+    li      t3, 2                /* illegal instruction */
+  10012a:	4e09                	c.li	t3,2
+    beq     t1, t3, use_mtval
+  10012c:	01c30b63          	beq	t1,t3,100142 <use_mtval>
+    li      t3, 1                /* instruction access fault */
+  100130:	4e05                	c.li	t3,1
+    beq     t1, t3, update_mepc
+  100132:	03c30163          	beq	t1,t3,100154 <update_mepc>
+    li      t3, 12               /* instruction page fault */
+  100136:	4e31                	c.li	t3,12
+    beq     t1, t3, update_mepc
+  100138:	01c30e63          	beq	t1,t3,100154 <update_mepc>
+
+    /* Otherwise, peek halfword at mepc to determine length */
+    lhu     t4, 0(t0)
+  10013c:	0002de83          	lhu	t4,0(t0)
+    j       decode_length
+  100140:	a011                	c.j	100144 <decode_length>
+
+00100142 <use_mtval>:
+
+use_mtval:
+    /* t4 already holds mtval */
+    j       decode_length
+  100142:	a009                	c.j	100144 <decode_length>
+
+00100144 <decode_length>:
+
+decode_length:
+    andi    t4, t4, 3
+  100144:	003efe93          	andi	t4,t4,3
+    li      t3, 3
+  100148:	4e0d                	c.li	t3,3
+    bne     t4, t3, compressed_len
+  10014a:	01ce9463          	bne	t4,t3,100152 <compressed_len>
+    li      t2, 4                /* standard 32-bit instruction */
+  10014e:	4391                	c.li	t2,4
+    j       update_mepc
+  100150:	a011                	c.j	100154 <update_mepc>
+
+00100152 <compressed_len>:
+
+compressed_len:
+    li      t2, 2                /* compressed instruction */
+  100152:	4389                	c.li	t2,2
+
+00100154 <update_mepc>:
+
+update_mepc:
+    add     t0, t0, t2           /* skip offending instruction */
+  100154:	929e                	c.add	t0,t2
+    csrw    mepc, t0
+  100156:	34129073          	csrrw	zero,mepc,t0
+    csrw    mcause, x0
+  10015a:	34201073          	csrrw	zero,mcause,zero
+    csrw    mtval, x0
+  10015e:	34301073          	csrrw	zero,mtval,zero
+    mret
+  100162:	30200073          	mret

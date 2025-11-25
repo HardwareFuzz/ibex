@@ -166,7 +166,10 @@ module ibex_core import ibex_pkg::*; #(
   output logic                         alert_minor_o,
   output logic                         alert_major_internal_o,
   output logic                         alert_major_bus_o,
-  output ibex_mubi_t                   core_busy_o
+  output ibex_mubi_t                   core_busy_o,
+  // Non-architectural export for tracing: registered exception cause of taken trap/interrupt
+  output exc_cause_t                   exc_cause_o,
+  output logic                         exc_cause_valid_o
 );
 
   localparam int unsigned PMPNumChan      = 3;
@@ -214,7 +217,9 @@ module ibex_core import ibex_pkg::*; #(
   logic [31:0] nt_branch_addr;
   pc_sel_e     pc_mux_id;                      // Mux selector for next PC
   exc_pc_sel_e exc_pc_mux_id;                  // Mux selector for exception PC
-  exc_cause_t  exc_cause;                      // Exception cause
+  exc_cause_t  exc_cause;                      // Exception cause (combinational)
+  exc_cause_t  exc_cause_traced_q;             // Latched cause for tracer/logging
+  logic        exc_cause_traced_valid_q;
 
   logic        instr_intg_err;
   logic        lsu_load_err, lsu_load_err_raw;
@@ -1144,7 +1149,7 @@ module ibex_core import ibex_pkg::*; #(
 
     .double_fault_seen_o,
 
-    // performance counter related signals
+  // performance counter related signals
     .instr_ret_i                (perf_instr_ret_wb),
     .instr_ret_compressed_i     (perf_instr_ret_compressed_wb),
     .instr_ret_spec_i           (perf_instr_ret_wb_spec),
@@ -1159,6 +1164,27 @@ module ibex_core import ibex_pkg::*; #(
     .mul_wait_i                 (perf_mul_wait),
     .div_wait_i                 (perf_div_wait)
   );
+
+  // Latch exception cause when it is written to CSR so tracer can access the final value later
+  // (rvfi_trap/rvfi_intr are aligned with instructions after pipeline flush, so we store the
+  // cause when csr_save_cause asserts and keep it valid until that trapped instruction is emitted).
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      exc_cause_traced_q       <= '0;
+      exc_cause_traced_valid_q <= 1'b0;
+    end else begin
+      if (csr_save_cause) begin
+        exc_cause_traced_q       <= exc_cause;
+        exc_cause_traced_valid_q <= 1'b1;
+      end else if (rvfi_valid & (rvfi_trap | rvfi_intr)) begin
+        // Consume latched cause once the trapped instruction is presented on RVFI.
+        exc_cause_traced_valid_q <= 1'b0;
+      end
+    end
+  end
+
+  assign exc_cause_o       = exc_cause_traced_q;
+  assign exc_cause_valid_o = exc_cause_traced_valid_q;
 
   // These assertions are in top-level as instr_valid_id required as the enable term
   `ASSERT(IbexCsrOpValid, instr_valid_id |-> csr_op inside {

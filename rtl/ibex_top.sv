@@ -151,6 +151,9 @@ module ibex_top import ibex_pkg::*; #(
   output logic                         alert_major_internal_o,
   output logic                         alert_major_bus_o,
   output logic                         core_sleep_o,
+  // Non-architectural export for tracing: registered exception cause from core
+  output exc_cause_t                   exc_cause_o,
+  output logic                         exc_cause_valid_o,
 
   // DFT bypass controls
   input logic                          scan_rst_ni
@@ -177,6 +180,8 @@ module ibex_top import ibex_pkg::*; #(
   ibex_mubi_t                  core_busy_d, core_busy_q;
   logic                        clock_en;
   logic                        irq_pending;
+  exc_cause_t                  exc_cause;
+  logic                        exc_cause_valid;
   // Core <-> Register file signals
   logic                        dummy_instr_id;
   logic                        dummy_instr_wb;
@@ -430,8 +435,14 @@ module ibex_top import ibex_pkg::*; #(
     .alert_minor_o         (core_alert_minor),
     .alert_major_internal_o(core_alert_major_internal),
     .alert_major_bus_o     (core_alert_major_bus),
-    .core_busy_o           (core_busy_d)
+    .core_busy_o           (core_busy_d),
+    .exc_cause_o           (exc_cause),
+    .exc_cause_valid_o     (exc_cause_valid)
   );
+
+  // Export cause and valid flag to top-level port for tracer
+  assign exc_cause_o       = exc_cause;
+  assign exc_cause_valid_o = exc_cause_valid;
 
   /////////////////////////////////
   // Register file Instantiation //
