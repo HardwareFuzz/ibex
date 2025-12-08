@@ -1,5 +1,7 @@
 # Build output
 build
+build_result/
+logs/
 
 # Common editor/IDE config and temporary files
 .project

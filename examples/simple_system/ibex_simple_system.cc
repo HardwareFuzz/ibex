@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cassert>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -12,6 +13,9 @@
 #include "verilated_toplevel.h"
 #include "verilator_memutil.h"
 #include "verilator_sim_ctrl.h"
+#if VM_COVERAGE
+#include "verilated_cov.h"
+#endif
 
 SimpleSystem::SimpleSystem(const char *ram_hier_path, int ram_size_words)
     : _ram(ram_hier_path, ram_size_words, 4) {}
@@ -75,7 +79,15 @@ int SimpleSystem::Setup(int argc, char **argv, bool &exit_app) {
   simctrl.RegisterExtension(&_memutil);
 
   exit_app = false;
-  return simctrl.ParseCommandArgs(argc, argv, exit_app);
+  int ret = simctrl.ParseCommandArgs(argc, argv, exit_app);
+
+#if VM_COVERAGE
+  if (!exit_app && ret) {
+    SetupCoverage();
+  }
+#endif
+
+  return ret;
 }
 
 void SimpleSystem::Run() {
@@ -90,6 +102,11 @@ void SimpleSystem::Run() {
 
 bool SimpleSystem::Finish() {
   VerilatorSimCtrl &simctrl = VerilatorSimCtrl::GetInstance();
+
+#if VM_COVERAGE
+  Verilated::threadContextp()->coveragep()->write(cov_path_.c_str());
+  std::cout << "Coverage: " << cov_path_ << std::endl;
+#endif
 
   if (!simctrl.WasSimulationSuccessful()) {
     return false;
@@ -109,3 +126,23 @@ bool SimpleSystem::Finish() {
 
   return true;
 }
+
+#if VM_COVERAGE
+void SimpleSystem::SetupCoverage() {
+  if (const char *cov_arg = Verilated::commandArgsPlusMatch("covfile=")) {
+    const char *val = cov_arg + std::strlen("+covfile=");
+    if (*val) {
+      cov_path_ = val;
+    }
+  }
+
+  const auto slash_pos = cov_path_.find_last_of("/\\");
+  if (slash_pos != std::string::npos && slash_pos != 0) {
+    Verilated::mkdir(cov_path_.substr(0, slash_pos).c_str());
+  } else {
+    Verilated::mkdir("logs");
+  }
+
+  Verilated::threadContextp()->coveragep()->zero();
+}
+#endif

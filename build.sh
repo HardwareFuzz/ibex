@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage: ./build.sh [--coverage] [--no-coverage] [--clean] [--help]
+
+Build the Verilator-based Ibex simple system via FuseSoC.
+  --coverage       Build a coverage-enabled binary (ibex_sim_rv32_cov)
+  --no-coverage    Build the standard binary (default)
+  --clean          Remove the selected build/output before building
+  --help           Show this message
+EOF
+}
+
 # Ibex one-click build script
 # - Builds Verilator-based Simple System via FuseSoC
 # - Uses a feature-rich Ibex configuration (max ISA + features supported)
-# - Writes simulator binary to build_result/ibex_sim_rv32
+# - Writes simulator binary to build_result/ibex_sim_rv32 (or ..._cov)
 
 # Use the most extension-rich config present in ibex_configs.yaml:
 #   - RV32M SingleCycle
@@ -14,9 +26,38 @@ set -euo pipefail
 #   - PMP with 16 regions
 # Note: Ibex does not implement A/F; those instructions will trap if executed.
 CONFIG="${CONFIG:-maxperf-pmp-bmfull-icache}"
+COVERAGE="${COVERAGE:-0}"
+CLEAN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --coverage|-c) COVERAGE=1 ;;
+    --no-coverage|-n) COVERAGE=0 ;;
+    --clean) CLEAN=1 ;;
+    --help|-h) usage; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if (( COVERAGE )); then
+  TARGET="sim_cov"
+  SIM_SUBDIR="${TARGET}-verilator"
+  OUT_FILE="build_result/ibex_sim_rv32_cov"
+else
+  TARGET="sim"
+  SIM_SUBDIR="${TARGET}-verilator"
+  OUT_FILE="build_result/ibex_sim_rv32"
+fi
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$ROOT_DIR"
+
+SIM_BIN="build/lowrisc_ibex_ibex_simple_system_0/${SIM_SUBDIR}/Vibex_simple_system"
 
 VENV=".venv"
 if [[ ! -d "$VENV" ]]; then
@@ -42,7 +83,11 @@ else
   echo "Python dependencies already present; skipping pip install."
 fi
 
-echo "Building Verilator simulator (config: ${CONFIG})..."
+if (( CLEAN )); then
+  rm -rf "build/lowrisc_ibex_ibex_simple_system_0/${SIM_SUBDIR}" "$OUT_FILE"
+fi
+
+echo "Building Verilator simulator (config: ${CONFIG}, target: ${TARGET})..."
 # Support both CLI entrypoint and module invocation for fusesoc
 CFG_OPTS=$(util/ibex_config.py "$CONFIG" fusesoc_opts)
 if command -v fusesoc >/dev/null 2>&1; then
@@ -50,17 +95,15 @@ if command -v fusesoc >/dev/null 2>&1; then
 else
   FUSESOC_CMD=(python3 -m fusesoc)
 fi
-"${FUSESOC_CMD[@]}" --cores-root=. run --target=sim --setup --build \
+"${FUSESOC_CMD[@]}" --cores-root=. run --target="${TARGET}" --setup --build \
   lowrisc:ibex:ibex_simple_system ${CFG_OPTS}
 
-SIM_BIN="build/lowrisc_ibex_ibex_simple_system_0/sim-verilator/Vibex_simple_system"
 if [[ ! -x "$SIM_BIN" ]]; then
   echo "ERROR: Simulator binary not found at $SIM_BIN" >&2
   exit 1
 fi
 
 echo "Exporting simulator binary..."
-OUT_FILE="build_result/ibex_sim_rv32"
 mkdir -p "$(dirname "$OUT_FILE")"
 if [[ -d "$OUT_FILE" ]]; then
   echo "Removing existing directory '$OUT_FILE' to create file output" >&2
@@ -71,5 +114,8 @@ chmod +x "$OUT_FILE"
 
 echo ""
 echo "Build complete. Simulator: $OUT_FILE"
+if (( COVERAGE )); then
+  echo "Pass +covfile=/path/to/coverage.dat to choose the coverage output (default: logs/coverage.dat)."
+fi
 echo "Run it with an ELF built for Ibex, e.g.:"
 echo "  $OUT_FILE --meminit=ram,examples/sw/simple_system/hello_test/hello_test.elf"
