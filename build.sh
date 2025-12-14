@@ -3,20 +3,21 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [--coverage] [--no-coverage] [--clean] [--help]
+Usage: ./build.sh [--coverage|--coverage-light|--no-coverage] [--clean] [--help]
 
 Build the Verilator-based Ibex simple system via FuseSoC.
-  --coverage       Build a coverage-enabled binary (ibex_sim_rv32_cov)
-  --no-coverage    Build the standard binary (default)
-  --clean          Remove the selected build/output before building
-  --help           Show this message
+  --coverage           Build full coverage-enabled binary (ibex_rv32_cov)
+  --coverage-light     Build light coverage binary with line/user coverage only (ibex_rv32_cov_light)
+  --no-coverage        Build the standard binary (default: ibex_rv32)
+  --clean              Remove the selected build/output before building
+  --help               Show this message
 EOF
 }
 
 # Ibex one-click build script
 # - Builds Verilator-based Simple System via FuseSoC
 # - Uses a feature-rich Ibex configuration (max ISA + features supported)
-# - Writes simulator binary to build_result/ibex_sim_rv32 (or ..._cov)
+# - Writes simulator binary to build_result/ibex_rv32 (or ..._cov / ..._cov_light)
 
 # Use the most extension-rich config present in ibex_configs.yaml:
 #   - RV32M SingleCycle
@@ -26,13 +27,14 @@ EOF
 #   - PMP with 16 regions
 # Note: Ibex does not implement A/F; those instructions will trap if executed.
 CONFIG="${CONFIG:-maxperf-pmp-bmfull-icache}"
-COVERAGE="${COVERAGE:-0}"
+COVERAGE_MODE="${COVERAGE_MODE:-none}" # none|full|light
 CLEAN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --coverage|-c) COVERAGE=1 ;;
-    --no-coverage|-n) COVERAGE=0 ;;
+    --coverage|-c) COVERAGE_MODE="full" ;;
+    --coverage-light) COVERAGE_MODE="light" ;;
+    --no-coverage|-n) COVERAGE_MODE="none" ;;
     --clean) CLEAN=1 ;;
     --help|-h) usage; exit 0 ;;
     *)
@@ -44,15 +46,27 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if (( COVERAGE )); then
-  TARGET="sim_cov"
-  SIM_SUBDIR="${TARGET}-verilator"
-  OUT_FILE="build_result/ibex_sim_rv32_cov"
-else
-  TARGET="sim"
-  SIM_SUBDIR="${TARGET}-verilator"
-  OUT_FILE="build_result/ibex_sim_rv32"
-fi
+case "$COVERAGE_MODE" in
+  full)
+    TARGET="sim_cov"
+    COV_SUFFIX="_cov"
+    ;;
+  light)
+    TARGET="sim_cov_light"
+    COV_SUFFIX="_cov_light"
+    ;;
+  none)
+    TARGET="sim"
+    COV_SUFFIX=""
+    ;;
+  *)
+    echo "ERROR: Unknown coverage mode: $COVERAGE_MODE" >&2
+    exit 1
+    ;;
+esac
+
+SIM_SUBDIR="${TARGET}-verilator"
+OUT_FILE="build_result/ibex_rv32${COV_SUFFIX}"
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$ROOT_DIR"
@@ -114,7 +128,7 @@ chmod +x "$OUT_FILE"
 
 echo ""
 echo "Build complete. Simulator: $OUT_FILE"
-if (( COVERAGE )); then
+if [[ "$COVERAGE_MODE" == "full" || "$COVERAGE_MODE" == "light" ]]; then
   echo "Pass +covfile=/path/to/coverage.dat to choose the coverage output (default: logs/coverage.dat)."
 fi
 echo "Run it with an ELF built for Ibex, e.g.:"
