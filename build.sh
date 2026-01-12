@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: ./build.sh [--coverage|--coverage-light|--no-coverage] [--clean] [--help]
 
-Build the Verilator-based Ibex simple system via FuseSoC.
+Build the Verilator-based Ibex simple system via FuseSoC (default 2 cores).
   --coverage           Build full coverage-enabled binary (ibex_rv32_cov)
   --coverage-light     Build light coverage binary with line/user coverage only (ibex_rv32_cov_light)
   --no-coverage        Build the standard binary (default: ibex_rv32)
@@ -28,6 +28,7 @@ EOF
 # Note: Ibex does not implement A/F; those instructions will trap if executed.
 CONFIG="${CONFIG:-maxperf-pmp-bmfull-icache}"
 COVERAGE_MODE="${COVERAGE_MODE:-none}" # none|full|light
+CORES="${CORES:-2}"
 CLEAN=0
 
 while [[ $# -gt 0 ]]; do
@@ -66,7 +67,7 @@ case "$COVERAGE_MODE" in
 esac
 
 SIM_SUBDIR="${TARGET}-verilator"
-OUT_FILE="build_result/ibex_rv32${COV_SUFFIX}"
+OUT_FILE="build_result/ibex_rv32_${CORES}c${COV_SUFFIX}"
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$ROOT_DIR"
