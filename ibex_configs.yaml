@@ -165,6 +165,46 @@ maxperf-pmp-bmfull-icache:
   MHPMCounterNum           : 0
   MHPMCounterWidth         : 40
 
+# memorder config (writeback variant)
+memorder-writeback:
+  RV32E                    : 0
+  RV32M                    : "ibex_pkg::RV32MSingleCycle"
+  RV32B                    : "ibex_pkg::RV32BFull"
+  RegFile                  : "ibex_pkg::RegFileFF"
+  BranchTargetALU          : 1
+  WritebackStage           : 1
+  ICache                   : 0
+  ICacheECC                : 0
+  ICacheScramble           : 0
+  BranchPredictor          : 0
+  DbgTriggerEn             : 0
+  SecureIbex               : 0
+  PMPEnable                : 1
+  PMPGranularity           : 0
+  PMPNumRegions            : 16
+  MHPMCounterNum           : 0
+  MHPMCounterWidth         : 40
+
+# memorder config above with icache enabled
+memorder-icache:
+  RV32E                    : 0
+  RV32M                    : "ibex_pkg::RV32MSingleCycle"
+  RV32B                    : "ibex_pkg::RV32BFull"
+  RegFile                  : "ibex_pkg::RegFileFF"
+  BranchTargetALU          : 1
+  WritebackStage           : 1
+  ICache                   : 1
+  ICacheECC                : 1
+  ICacheScramble           : 0
+  BranchPredictor          : 0
+  DbgTriggerEn             : 0
+  SecureIbex               : 0
+  PMPEnable                : 1
+  PMPGranularity           : 0
+  PMPNumRegions            : 16
+  MHPMCounterNum           : 0
+  MHPMCounterWidth         : 40
+
 
 # ===============================
 # * EXPERIMENTAL CONFIGURATIONS *
@@ -191,4 +231,3 @@ experimental-branch-predictor:
   PMPNumRegions            : 4
   MHPMCounterNum           : 0
   MHPMCounterWidth         : 40
-

@@ -3,12 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [--coverage|--coverage-light|--no-coverage] [--clean] [--help]
+Usage: ./build.sh [--config <name>] [--coverage|--coverage-light|--no-coverage] [--clean] [--help]
 
 Build the Verilator-based Ibex simple system via FuseSoC (default 2 cores).
   --coverage           Build full coverage-enabled binary (ibex_rv32_cov)
   --coverage-light     Build light coverage binary with line/user coverage only (ibex_rv32_cov_light)
   --no-coverage        Build the standard binary (default: ibex_rv32)
+  --config <name>      Ibex configuration name from ibex_configs.yaml (default: maxperf-pmp-bmfull-icache)
   --clean              Remove the selected build/output before building
   --help               Show this message
 EOF
@@ -36,6 +37,19 @@ while [[ $# -gt 0 ]]; do
     --coverage|-c) COVERAGE_MODE="full" ;;
     --coverage-light) COVERAGE_MODE="light" ;;
     --no-coverage|-n) COVERAGE_MODE="none" ;;
+    --config)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --config requires a value" >&2
+        usage
+        exit 1
+      fi
+      CONFIG="$2"
+      shift 2
+      continue
+      ;;
+    --config=*)
+      CONFIG="${1#*=}"
+      ;;
     --clean) CLEAN=1 ;;
     --help|-h) usage; exit 0 ;;
     *)
