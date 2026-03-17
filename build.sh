@@ -11,7 +11,7 @@ Options:
   --isa <rv32...>          ISA label for output naming (default: rv32imc)
                            Note: Ibex is RV32-only; rv64* is rejected.
   --cores <N>              Number of cores (default: 1)
-                           Note: this branch wires a single core.
+                           Supported: 1 or 2.
   --out-dir DIR            Output directory for the final binary (default: ./build_result)
                            You can also set CX_OUT_DIR (shared across repos) or OUT_DIR.
   --coverage [mode]        Coverage mode: none|full|light (default: none)
@@ -84,9 +84,8 @@ if [[ ! "$CORES" =~ ^[0-9]+$ ]] || (( CORES < 1 )); then
   echo "ERROR: --cores must be a positive integer (got '$CORES')" >&2
   exit 1
 fi
-if (( CORES != 1 )); then
-  echo "ERROR: This branch supports --cores 1 only (requested: $CORES)." >&2
-  echo "       Use the 2hart branch for multi-core simple_system wiring." >&2
+if (( CORES < 1 || CORES > 2 )); then
+  echo "ERROR: This branch supports --cores 1 or 2 (requested: $CORES)." >&2
   exit 1
 fi
 
@@ -152,7 +151,7 @@ else
   FUSESOC_CMD=(python3 -m fusesoc)
 fi
 "${FUSESOC_CMD[@]}" --cores-root=. run --target="${TARGET}" --setup --build \
-  lowrisc:ibex:ibex_simple_system ${CFG_OPTS}
+  lowrisc:ibex:ibex_simple_system ${CFG_OPTS} --NUM_CORES=${CORES}
 
 if [[ ! -x "$SIM_BIN" ]]; then
   echo "ERROR: Simulator binary not found at $SIM_BIN" >&2

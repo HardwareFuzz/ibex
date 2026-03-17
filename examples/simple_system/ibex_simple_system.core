@@ -66,6 +66,12 @@ parameters:
     paramtype: vlogparam
     description: "Path to a vmem file to initialize the RAM with"
 
+  NUM_CORES:
+    datatype: int
+    paramtype: vlogparam
+    default: 1
+    description: "Number of cores instantiated in the simple system"
+
   BranchTargetALU:
     datatype: int
     paramtype: vlogparam
@@ -158,6 +164,7 @@ targets:
       - MHPMCounterNum
       - MHPMCounterWidth
       - SRAMInitFile
+      - NUM_CORES
 
   lint:
     <<: *default_target

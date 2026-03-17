@@ -63,12 +63,13 @@ module ibex_simple_system (
   parameter bit                 ICacheECC                = 1'b0;
   parameter bit                 BranchPredictor          = 1'b0;
   parameter                     SRAMInitFile             = "";
+  parameter int unsigned        NUM_CORES                = 1;
 
   logic clk_sys = 1'b0, rst_sys_n;
 
-  typedef enum logic {
-    CoreD
-  } bus_host_e;
+  // Core index constants (kept for compatibility with existing bind files).
+  localparam int unsigned CoreD  = 0;
+  localparam int unsigned Core1D = 1;
 
   typedef enum logic[1:0] {
     Ram,
@@ -77,7 +78,7 @@ module ibex_simple_system (
   } bus_device_e;
 
   localparam int NrDevices = 3;
-  localparam int NrHosts = 1;
+  localparam int unsigned NrHosts = NUM_CORES;
 
   // interrupts
   logic timer_irq;
@@ -93,8 +94,26 @@ module ibex_simple_system (
   logic [31:0]    host_rdata  [NrHosts];
   logic           host_err    [NrHosts];
 
-  logic [6:0]     data_rdata_intg;
-  logic [6:0]     instr_rdata_intg;
+  logic [6:0]     data_rdata_intg [NrHosts];
+  logic [6:0]     instr_rdata_intg [NrHosts];
+
+  // Instruction-side bus (single RAM device, multi-host)
+  localparam int InstrDevices = 1;
+  logic           instr_device_req    [InstrDevices];
+  logic [31:0]    instr_device_addr   [InstrDevices];
+  logic           instr_device_we     [InstrDevices];
+  logic [ 3:0]    instr_device_be     [InstrDevices];
+  logic [31:0]    instr_device_wdata  [InstrDevices];
+  logic           instr_device_rvalid [InstrDevices];
+  logic [31:0]    instr_device_rdata  [InstrDevices];
+  logic           instr_device_err    [InstrDevices];
+
+  logic [31:0]    instr_cfg_device_addr_base [InstrDevices];
+  logic [31:0]    instr_cfg_device_addr_mask [InstrDevices];
+
+  logic           instr_we     [NrHosts];
+  logic [ 3:0]    instr_be     [NrHosts];
+  logic [31:0]    instr_wdata  [NrHosts];
 
   // devices (slaves)
   logic           device_req    [NrDevices];
@@ -116,16 +135,22 @@ module ibex_simple_system (
   assign cfg_device_addr_base[Timer] = 32'h30000;
   assign cfg_device_addr_mask[Timer] = ~32'h3FF; // 1 kB
 
-  // Instruction fetch signals
-  logic instr_req;
-  logic instr_gnt;
-  logic instr_rvalid;
-  logic [31:0] instr_addr;
-  logic [31:0] instr_rdata;
-  logic instr_err;
+  assign instr_cfg_device_addr_base[0] = cfg_device_addr_base[Ram];
+  assign instr_cfg_device_addr_mask[0] = cfg_device_addr_mask[Ram];
 
-  assign instr_gnt = instr_req;
-  assign instr_err = '0;
+  for (genvar i = 0; i < NrHosts; i++) begin : gen_instr_tieoff
+    assign instr_we[i] = 1'b0;
+    assign instr_be[i] = '0;
+    assign instr_wdata[i] = '0;
+  end
+
+  // Instruction fetch signals (one per core)
+  logic           instr_req    [NrHosts];
+  logic           instr_gnt    [NrHosts];
+  logic           instr_rvalid [NrHosts];
+  logic [31:0]    instr_addr   [NrHosts];
+  logic [31:0]    instr_rdata  [NrHosts];
+  logic           instr_err    [NrHosts];
 
   `ifdef VERILATOR
     assign clk_sys = IO_CLK;
@@ -145,6 +170,7 @@ module ibex_simple_system (
   // Tie-off unused error signals
   assign device_err[Ram] = 1'b0;
   assign device_err[SimCtrl] = 1'b0;
+  assign instr_device_err[0] = 1'b0;
 
   bus #(
     .NrDevices    ( NrDevices ),
@@ -178,116 +204,154 @@ module ibex_simple_system (
     .cfg_device_addr_mask
   );
 
+  bus #(
+    .NrDevices    ( InstrDevices ),
+    .NrHosts      ( NrHosts      ),
+    .DataWidth    ( 32           ),
+    .AddressWidth ( 32           )
+  ) u_instr_bus (
+    .clk_i               (clk_sys),
+    .rst_ni              (rst_sys_n),
+
+    .host_req_i          (instr_req     ),
+    .host_gnt_o          (instr_gnt     ),
+    .host_addr_i         (instr_addr    ),
+    .host_we_i           (instr_we      ),
+    .host_be_i           (instr_be      ),
+    .host_wdata_i        (instr_wdata   ),
+    .host_rvalid_o       (instr_rvalid  ),
+    .host_rdata_o        (instr_rdata   ),
+    .host_err_o          (instr_err     ),
+
+    .device_req_o        (instr_device_req   ),
+    .device_addr_o       (instr_device_addr  ),
+    .device_we_o         (instr_device_we    ),
+    .device_be_o         (instr_device_be    ),
+    .device_wdata_o      (instr_device_wdata ),
+    .device_rvalid_i     (instr_device_rvalid),
+    .device_rdata_i      (instr_device_rdata ),
+    .device_err_i        (instr_device_err   ),
+
+    .cfg_device_addr_base(instr_cfg_device_addr_base),
+    .cfg_device_addr_mask(instr_cfg_device_addr_mask)
+  );
+
   if (SecureIbex) begin : g_mem_rdata_ecc
-    logic [31:0] unused_data_rdata;
-    logic [31:0] unused_instr_rdata;
+    for (genvar i = 0; i < NrHosts; i++) begin : gen_intg
+      logic [31:0] unused_data_rdata;
+      logic [31:0] unused_instr_rdata;
 
-    prim_secded_inv_39_32_enc u_data_rdata_intg_gen (
-      .data_i (host_rdata[CoreD]),
-      .data_o ({data_rdata_intg, unused_data_rdata})
-    );
+      prim_secded_inv_39_32_enc u_data_rdata_intg_gen (
+        .data_i (host_rdata[i]),
+        .data_o ({data_rdata_intg[i], unused_data_rdata})
+      );
 
-    prim_secded_inv_39_32_enc u_instr_rdata_intg_gen (
-      .data_i (instr_rdata),
-      .data_o ({instr_rdata_intg, unused_instr_rdata})
-    );
+      prim_secded_inv_39_32_enc u_instr_rdata_intg_gen (
+        .data_i (instr_rdata[i]),
+        .data_o ({instr_rdata_intg[i], unused_instr_rdata})
+      );
+    end
   end else begin : g_no_mem_rdata_ecc
-    assign data_rdata_intg = '0;
-    assign instr_rdata_intg = '0;
+    for (genvar i = 0; i < NrHosts; i++) begin : gen_no_intg
+      assign data_rdata_intg[i] = '0;
+      assign instr_rdata_intg[i] = '0;
+    end
   end
 
-  ibex_top_tracing #(
-      .SecureIbex      ( SecureIbex       ),
-      .LockstepOffset  ( LockstepOffset   ),
-      .ICacheScramble  ( ICacheScramble   ),
-      .PMPEnable       ( PMPEnable        ),
-      .PMPGranularity  ( PMPGranularity   ),
-      .PMPNumRegions   ( PMPNumRegions    ),
-      .MHPMCounterNum  ( MHPMCounterNum   ),
-      .MHPMCounterWidth( MHPMCounterWidth ),
-      .RV32E           ( RV32E            ),
-      .RV32M           ( RV32M            ),
-      .RV32B           ( RV32B            ),
-      .RV32ZC          ( RV32ZC           ),
-      .RegFile         ( RegFile          ),
-      .BranchTargetALU ( BranchTargetALU  ),
-      .ICache          ( ICache           ),
-      .ICacheECC       ( ICacheECC        ),
-      .WritebackStage  ( WritebackStage   ),
-      .BranchPredictor ( BranchPredictor  ),
-      .DbgTriggerEn    ( DbgTriggerEn     ),
-      .DmBaseAddr      ( 32'h00100000     ),
-      .DmAddrMask      ( 32'h00000003     ),
-      .DmHaltAddr      ( 32'h00100000     ),
-      .DmExceptionAddr ( 32'h00100000     )
-    ) u_top (
-      .clk_i                     (clk_sys),
-      .rst_ni                    (rst_sys_n),
+  for (genvar i = 0; i < NrHosts; i++) begin : gen_cores
+    ibex_top_tracing #(
+        .SecureIbex      ( SecureIbex       ),
+        .LockstepOffset  ( LockstepOffset   ),
+        .ICacheScramble  ( ICacheScramble   ),
+        .PMPEnable       ( PMPEnable        ),
+        .PMPGranularity  ( PMPGranularity   ),
+        .PMPNumRegions   ( PMPNumRegions    ),
+        .MHPMCounterNum  ( MHPMCounterNum   ),
+        .MHPMCounterWidth( MHPMCounterWidth ),
+        .RV32E           ( RV32E            ),
+        .RV32M           ( RV32M            ),
+        .RV32B           ( RV32B            ),
+        .RV32ZC          ( RV32ZC           ),
+        .RegFile         ( RegFile          ),
+        .BranchTargetALU ( BranchTargetALU  ),
+        .ICache          ( ICache           ),
+        .ICacheECC       ( ICacheECC        ),
+        .WritebackStage  ( WritebackStage   ),
+        .BranchPredictor ( BranchPredictor  ),
+        .DbgTriggerEn    ( DbgTriggerEn     ),
+        .DmBaseAddr      ( 32'h00100000     ),
+        .DmAddrMask      ( 32'h00000003     ),
+        .DmHaltAddr      ( 32'h00100000     ),
+        .DmExceptionAddr ( 32'h00100000     )
+      ) u_top (
+        .clk_i                     (clk_sys),
+        .rst_ni                    (rst_sys_n),
 
-      .test_en_i                 (1'b0),
-      .scan_rst_ni               (1'b1),
-      .ram_cfg_icache_tag_i      (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-      .ram_cfg_rsp_icache_tag_o  (),
-      .ram_cfg_icache_data_i     (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-      .ram_cfg_rsp_icache_data_o (),
+        .test_en_i                 (1'b0),
+        .scan_rst_ni               (1'b1),
+        .ram_cfg_icache_tag_i      (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
+        .ram_cfg_rsp_icache_tag_o  (),
+        .ram_cfg_icache_data_i     (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
+        .ram_cfg_rsp_icache_data_o (),
 
-      .hart_id_i                 (32'b0),
-      // First instruction executed is at 0x0 + 0x80
-      .boot_addr_i               (32'h00100000),
+        .hart_id_i                 (32'(i)),
+        // First instruction executed is at 0x0 + 0x80
+        .boot_addr_i               (32'h00100000),
 
-      .instr_req_o               (instr_req),
-      .instr_gnt_i               (instr_gnt),
-      .instr_rvalid_i            (instr_rvalid),
-      .instr_addr_o              (instr_addr),
-      .instr_rdata_i             (instr_rdata),
-      .instr_rdata_intg_i        (instr_rdata_intg),
-      .instr_err_i               (instr_err),
+        .instr_req_o               (instr_req[i]),
+        .instr_gnt_i               (instr_gnt[i]),
+        .instr_rvalid_i            (instr_rvalid[i]),
+        .instr_addr_o              (instr_addr[i]),
+        .instr_rdata_i             (instr_rdata[i]),
+        .instr_rdata_intg_i        (instr_rdata_intg[i]),
+        .instr_err_i               (instr_err[i]),
 
-      .data_req_o                (host_req[CoreD]),
-      .data_gnt_i                (host_gnt[CoreD]),
-      .data_rvalid_i             (host_rvalid[CoreD]),
-      .data_we_o                 (host_we[CoreD]),
-      .data_be_o                 (host_be[CoreD]),
-      .data_addr_o               (host_addr[CoreD]),
-      .data_wdata_o              (host_wdata[CoreD]),
-      .data_wdata_intg_o         (),
-      .data_rdata_i              (host_rdata[CoreD]),
-      .data_rdata_intg_i         (data_rdata_intg),
-      .data_err_i                (host_err[CoreD]),
+        .data_req_o                (host_req[i]),
+        .data_gnt_i                (host_gnt[i]),
+        .data_rvalid_i             (host_rvalid[i]),
+        .data_we_o                 (host_we[i]),
+        .data_be_o                 (host_be[i]),
+        .data_addr_o               (host_addr[i]),
+        .data_wdata_o              (host_wdata[i]),
+        .data_wdata_intg_o         (),
+        .data_rdata_i              (host_rdata[i]),
+        .data_rdata_intg_i         (data_rdata_intg[i]),
+        .data_err_i                (host_err[i]),
 
-      .irq_software_i            (1'b0),
-      .irq_timer_i               (timer_irq),
-      .irq_external_i            (1'b0),
-      .irq_fast_i                (15'b0),
-      .irq_nm_i                  (1'b0),
+        .irq_software_i            (1'b0),
+        .irq_timer_i               (timer_irq),
+        .irq_external_i            (1'b0),
+        .irq_fast_i                (15'b0),
+        .irq_nm_i                  (1'b0),
 
-      .scramble_key_valid_i      ('0),
-      .scramble_key_i            ('0),
-      .scramble_nonce_i          ('0),
-      .scramble_req_o            (),
+        .scramble_key_valid_i      ('0),
+        .scramble_key_i            ('0),
+        .scramble_nonce_i          ('0),
+        .scramble_req_o            (),
 
-      .debug_req_i               (1'b0),
-      .crash_dump_o              (),
-      .double_fault_seen_o       (),
+        .debug_req_i               (1'b0),
+        .crash_dump_o              (),
+        .double_fault_seen_o       (),
 
-      .fetch_enable_i            (ibex_pkg::IbexMuBiOn),
-      .alert_minor_o             (),
-      .alert_major_internal_o    (),
-      .alert_major_bus_o         (),
-      .core_sleep_o              (),
+        .fetch_enable_i            (ibex_pkg::IbexMuBiOn),
+        .alert_minor_o             (),
+        .alert_major_internal_o    (),
+        .alert_major_bus_o         (),
+        .core_sleep_o              (),
 
-      .lockstep_cmp_en_o         (),
+        .lockstep_cmp_en_o         (),
 
-      .data_req_shadow_o         (),
-      .data_we_shadow_o          (),
-      .data_be_shadow_o          (),
-      .data_addr_shadow_o        (),
-      .data_wdata_shadow_o       (),
-      .data_wdata_intg_shadow_o  (),
+        .data_req_shadow_o         (),
+        .data_we_shadow_o          (),
+        .data_be_shadow_o          (),
+        .data_addr_shadow_o        (),
+        .data_wdata_shadow_o       (),
+        .data_wdata_intg_shadow_o  (),
 
-      .instr_req_shadow_o        (),
-      .instr_addr_shadow_o       ()
-    );
+        .instr_req_shadow_o        (),
+        .instr_addr_shadow_o       ()
+      );
+  end
 
   // SRAM block for instruction and data storage
   ram_2p #(
@@ -306,13 +370,13 @@ module ibex_simple_system (
       .a_rvalid_o  (device_rvalid[Ram]),
       .a_rdata_o   (device_rdata[Ram]),
 
-      .b_req_i     (instr_req),
-      .b_we_i      (1'b0),
-      .b_be_i      (4'b0),
-      .b_addr_i    (instr_addr),
-      .b_wdata_i   (32'b0),
-      .b_rvalid_o  (instr_rvalid),
-      .b_rdata_o   (instr_rdata)
+      .b_req_i     (instr_device_req[0]),
+      .b_we_i      (instr_device_we[0]),
+      .b_be_i      (instr_device_be[0]),
+      .b_addr_i    (instr_device_addr[0]),
+      .b_wdata_i   (instr_device_wdata[0]),
+      .b_rvalid_o  (instr_device_rvalid[0]),
+      .b_rdata_o   (instr_device_rdata[0])
     );
 
   simulator_ctrl #(
@@ -351,13 +415,13 @@ module ibex_simple_system (
   export "DPI-C" function mhpmcounter_num;
 
   function automatic int unsigned mhpmcounter_num();
-    return u_top.u_ibex_top.u_ibex_core.cs_registers_i.MHPMCounterNum;
+    return gen_cores[0].u_top.u_ibex_top.u_ibex_core.cs_registers_i.MHPMCounterNum;
   endfunction
 
   export "DPI-C" function mhpmcounter_get;
 
   function automatic longint unsigned mhpmcounter_get(int index);
-    return u_top.u_ibex_top.u_ibex_core.cs_registers_i.mhpmcounter[index];
+    return gen_cores[0].u_top.u_ibex_top.u_ibex_core.cs_registers_i.mhpmcounter[index];
   endfunction
 
 endmodule
