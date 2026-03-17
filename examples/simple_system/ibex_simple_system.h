@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <string>
+
 #include "verilated_toplevel.h"
 #include "verilator_memutil.h"
 
@@ -26,4 +28,9 @@ class SimpleSystem {
   virtual int Setup(int argc, char **argv, bool &exit_app);
   virtual void Run();
   virtual bool Finish();
+
+#if VM_COVERAGE
+  void SetupCoverage();
+  std::string cov_path_ = "logs/coverage.dat";
+#endif
 };

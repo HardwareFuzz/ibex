@@ -175,6 +175,10 @@ module ibex_top_tracing import ibex_pkg::*; #(
   logic [63:0] unused_rvfi_ext_mcycle;
   logic        unused_rvfi_ext_ic_scr_key_valid;
   logic        unused_rvfi_ext_irq_valid;
+
+  // Exception cause for tracer
+  exc_cause_t exc_cause;
+  logic       exc_cause_valid;
   logic        unused_rvfi_ext_expanded_insn_last;
 
   // Tracer doesn't use these signals, though other modules may probe down into tracer to observe
@@ -316,6 +320,9 @@ module ibex_top_tracing import ibex_pkg::*; #(
     .alert_major_bus_o,
     .core_sleep_o,
 
+    .exc_cause_o(exc_cause),
+    .exc_cause_valid_o(exc_cause_valid),
+
     .lockstep_cmp_en_o,
 
     .data_req_shadow_o,
@@ -359,6 +366,10 @@ module ibex_top_tracing import ibex_pkg::*; #(
     .rvfi_mem_wmask,
     .rvfi_mem_rdata,
     .rvfi_mem_wdata,
+    .exc_cause(exc_cause),
+    .exc_cause_valid(exc_cause_valid),
+    .rvfi_ext_pre_mip(rvfi_ext_pre_mip),
+    .rvfi_ext_post_mip(rvfi_ext_post_mip),
     .rvfi_ext_expanded_insn_valid,
     .rvfi_ext_expanded_insn
   );

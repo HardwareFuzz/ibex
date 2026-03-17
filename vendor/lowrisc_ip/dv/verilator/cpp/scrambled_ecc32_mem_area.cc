@@ -82,11 +82,16 @@ static uint32_t vbits(uint32_t size) {
 }
 
 extern "C" {
-int simutil_get_scramble_key(svBitVecVal *key);
-int simutil_get_scramble_nonce(svBitVecVal *nonce);
+int __attribute__((weak)) simutil_get_scramble_key(svBitVecVal *key);
+int __attribute__((weak)) simutil_get_scramble_nonce(svBitVecVal *nonce);
 }
 
 std::vector<uint8_t> ScrambledEcc32MemArea::GetScrambleKey() const {
+  if (!simutil_get_scramble_key) {
+    throw std::runtime_error(
+        "simutil_get_scramble_key DPI function is not available; enable "
+        "ICache scrambling or exclude memutil_dpi_scrambled when unused.");
+  }
   SVScoped scoped(scr_scope_);
   svBitVecVal key_minibuf[((kPrinceWidthByte * 2) + 3) / 4];
 
@@ -101,6 +106,12 @@ std::vector<uint8_t> ScrambledEcc32MemArea::GetScrambleKey() const {
 
 std::vector<uint8_t> ScrambledEcc32MemArea::GetScrambleNonce() const {
   assert(GetNonceWidthByte() <= kScrMaxNonceWidthByte);
+
+  if (!simutil_get_scramble_nonce) {
+    throw std::runtime_error(
+        "simutil_get_scramble_nonce DPI function is not available; enable "
+        "ICache scrambling or exclude memutil_dpi_scrambled when unused.");
+  }
 
   SVScoped scoped(scr_scope_);
   svBitVecVal nonce_minibuf[(kScrMaxNonceWidthByte + 3) / 4];
