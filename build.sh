@@ -12,13 +12,15 @@ Options:
                            Note: Ibex is RV32-only; rv64* is rejected.
   --cores <N>              Number of cores (default: 1)
                            Note: this branch wires a single core.
+  --out-dir DIR            Output directory for the final binary (default: ./build_result)
+                           You can also set CX_OUT_DIR (shared across repos) or OUT_DIR.
   --coverage [mode]        Coverage mode: none|full|light (default: none)
                            If mode is omitted, it defaults to full.
   --clean                  Remove selected build/output before building
   --help                   Show this message
 
 Outputs:
-  build_result/ibex_<isa>_<N>c[_cov|_cov_light]
+  <out-dir>/ibex_<isa>_<N>c[_cov|_cov_light]
 EOF
 }
 
@@ -27,6 +29,7 @@ ISA="rv32imc"
 CORES="1"
 COVERAGE_MODE="none" # none|full|light
 CLEAN=0
+OUT_DIR_OPT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +43,11 @@ while [[ $# -gt 0 ]]; do
       CORES="$2"; shift 2; continue ;;
     --cores=*)
       CORES="${1#*=}" ;;
+    --out-dir)
+      [[ $# -ge 2 ]] || { echo "ERROR: --out-dir requires a value" >&2; usage; exit 1; }
+      OUT_DIR_OPT="$2"; shift 2; continue ;;
+    --out-dir=*)
+      OUT_DIR_OPT="${1#*=}" ;;
     --coverage)
       if [[ $# -ge 2 ]] && [[ ! "$2" =~ ^- ]]; then
         COVERAGE_MODE="$2"; shift 2; continue
@@ -101,12 +109,15 @@ case "$COVERAGE_MODE" in
     ;;
 esac
 
-SIM_SUBDIR="${TARGET}-verilator"
-OUT_FILE="build_result/ibex_${ISA}_${CORES}c${COV_SUFFIX}"
-SIM_BIN="build/lowrisc_ibex_ibex_simple_system_0/${SIM_SUBDIR}/Vibex_simple_system"
-
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$ROOT_DIR"
+
+OUT_DIR_DEFAULT="${ROOT_DIR}/build_result"
+OUT_DIR="${OUT_DIR_OPT:-${CX_OUT_DIR:-${OUT_DIR:-${OUT_DIR_DEFAULT}}}}"
+
+SIM_SUBDIR="${TARGET}-verilator"
+OUT_FILE="${OUT_DIR}/ibex_${ISA}_${CORES}c${COV_SUFFIX}"
+SIM_BIN="build/lowrisc_ibex_ibex_simple_system_0/${SIM_SUBDIR}/Vibex_simple_system"
 
 VENV=.venv
 if [[ ! -d "$VENV" ]]; then
@@ -149,7 +160,7 @@ if [[ ! -x "$SIM_BIN" ]]; then
 fi
 
 echo "Exporting simulator binary..."
-mkdir -p "$(dirname "$OUT_FILE")"
+mkdir -p "${OUT_DIR}"
 if [[ -d "$OUT_FILE" ]]; then
   rm -rf "$OUT_FILE"
 fi
