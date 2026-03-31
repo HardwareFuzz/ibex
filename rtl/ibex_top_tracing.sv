@@ -180,6 +180,12 @@ module ibex_top_tracing import ibex_pkg::*; #(
   exc_cause_t exc_cause;
   logic       exc_cause_valid;
   logic        unused_rvfi_ext_expanded_insn_last;
+  localparam int unsigned TraceRvfiStages = WritebackStage ? 2 : 1;
+  logic [63:0] trace_cycle;
+  logic [63:0] trace_cycle_now;
+  logic [63:0] trace_id_start_cycle_q;
+  logic [63:0] trace_rvfi_start_cycle_q [TraceRvfiStages];
+  logic [63:0] rvfi_trace_start_cycle;
 
   // Tracer doesn't use these signals, though other modules may probe down into tracer to observe
   // them.
@@ -196,6 +202,38 @@ module ibex_top_tracing import ibex_pkg::*; #(
   assign unused_rvfi_ext_ic_scr_key_valid = rvfi_ext_ic_scr_key_valid;
   assign unused_rvfi_ext_irq_valid = rvfi_ext_irq_valid;
   assign unused_rvfi_ext_expanded_insn_last = rvfi_ext_expanded_insn_last;
+  assign trace_cycle_now = rst_ni ? (trace_cycle + 64'd1) : 64'd0;
+  assign rvfi_trace_start_cycle = trace_rvfi_start_cycle_q[TraceRvfiStages-1];
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    logic [63:0] next_cycle;
+    logic [63:0] id_start_cycle_d;
+
+    if (!rst_ni) begin
+      trace_cycle <= 64'd0;
+      trace_id_start_cycle_q <= 64'd0;
+      for (int idx = 0; idx < TraceRvfiStages; idx++) begin
+        trace_rvfi_start_cycle_q[idx] <= 64'd0;
+      end
+    end else begin
+      next_cycle = trace_cycle + 64'd1;
+      trace_cycle <= next_cycle;
+      id_start_cycle_d = trace_id_start_cycle_q;
+
+      if (u_ibex_top.u_ibex_core.instr_valid_id && u_ibex_top.u_ibex_core.instr_first_cycle_id) begin
+        id_start_cycle_d = next_cycle;
+        trace_id_start_cycle_q <= next_cycle;
+      end
+
+      if (u_ibex_top.u_ibex_core.rvfi_id_done) begin
+        trace_rvfi_start_cycle_q[0] <= id_start_cycle_d;
+      end
+
+      if (WritebackStage && u_ibex_top.u_ibex_core.rvfi_wb_done) begin
+        trace_rvfi_start_cycle_q[1] <= trace_rvfi_start_cycle_q[0];
+      end
+    end
+  end
 
   ibex_top #(
     .PMPEnable        ( PMPEnable        ),
@@ -342,6 +380,8 @@ module ibex_top_tracing import ibex_pkg::*; #(
     .rst_ni,
 
     .hart_id_i,
+    .trace_cycle(trace_cycle_now),
+    .rvfi_trace_start_cycle(rvfi_trace_start_cycle),
 
     .rvfi_valid,
     .rvfi_order,

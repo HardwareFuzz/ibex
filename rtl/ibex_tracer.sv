@@ -39,6 +39,8 @@ module ibex_tracer (
   input logic        rst_ni,
 
   input logic [31:0] hart_id_i,
+  input logic [63:0] trace_cycle,
+  input logic [63:0] rvfi_trace_start_cycle,
 
   // RVFI as described at https://github.com/SymbioticEDA/riscv-formal/blob/master/docs/rvfi.md
   // The standard interface does not have _i/_o suffixes. For consistency with the standard the
@@ -90,7 +92,6 @@ module ibex_tracer (
   int          file_handle;
   string       file_name;
 
-  int unsigned cycle;
   string       decoded_str;
   logic        insn_is_compressed;
 
@@ -139,8 +140,8 @@ module ibex_tracer (
       rvfi_insn_str = $sformatf("%h", rvfi_insn);
     end
 
-    $fwrite(fh, "%15t\t%d\t%h\t%s\t%s\t",
-            $time, cycle, rvfi_pc_rdata, rvfi_insn_str, decoded_str);
+    $fwrite(fh, "%15t\t%0d\t%h\t%s\t%s\t",
+            $time, trace_cycle, rvfi_pc_rdata, rvfi_insn_str, decoded_str);
 
     if ((data_accessed & RS1) != 0) begin
       $fwrite(fh, " %s:0x%08x", reg_addr_to_str(rvfi_rs1_addr), rvfi_rs1_rdata);
@@ -201,6 +202,8 @@ module ibex_tracer (
       end
     end
     if (rvfi_halt) $fwrite(fh, " HALT");
+    $fwrite(fh, " clk_start:%0d clk_end:%0d clk_span:%0d",
+            rvfi_trace_start_cycle, trace_cycle, trace_cycle - rvfi_trace_start_cycle + 1);
 
     $fwrite(fh, "\n");
   endfunction
@@ -889,15 +892,6 @@ module ibex_tracer (
     successor = get_fence_description(rvfi_insn[23:20]);
     decoded_str = $sformatf("fence\t%s,%s", predecessor, successor);
   endfunction
-
-  // cycle counter
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      cycle <= 0;
-    end else begin
-      cycle <= cycle + 1;
-    end
-  end
 
   // close output file for writing
   final begin
