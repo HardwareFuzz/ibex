@@ -61,6 +61,7 @@ module ibex_simple_system (
   parameter bit                 ICache                   = 1'b0;
   parameter bit                 DbgTriggerEn             = 1'b0;
   parameter bit                 ICacheECC                = 1'b0;
+  parameter bit                 ICacheTweakInfection     = 1'b0;
   parameter bit                 BranchPredictor          = 1'b0;
   parameter                     SRAMInitFile             = "";
   parameter int unsigned        NUM_CORES                = 1;
@@ -276,6 +277,7 @@ module ibex_simple_system (
         .BranchTargetALU ( BranchTargetALU  ),
         .ICache          ( ICache           ),
         .ICacheECC       ( ICacheECC        ),
+        .ICacheTweakInfection ( ICacheTweakInfection ),
         .WritebackStage  ( WritebackStage   ),
         .BranchPredictor ( BranchPredictor  ),
         .DbgTriggerEn    ( DbgTriggerEn     ),
@@ -289,10 +291,10 @@ module ibex_simple_system (
 
         .test_en_i                 (1'b0),
         .scan_rst_ni               (1'b1),
-        .ram_cfg_icache_tag_i      (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-        .ram_cfg_rsp_icache_tag_o  (),
-        .ram_cfg_icache_data_i     (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-        .ram_cfg_rsp_icache_data_o (),
+        .ram_cfg_icache_tag_i      ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+        .ram_cfg_icache_tag_o      (),
+        .ram_cfg_icache_data_i     ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+        .ram_cfg_icache_data_o     (),
 
         .hart_id_i                 (32'(i)),
         // First instruction executed is at 0x0 + 0x80
@@ -334,6 +336,7 @@ module ibex_simple_system (
         .double_fault_seen_o       (),
 
         .fetch_enable_i            (ibex_pkg::IbexMuBiOn),
+        .mcounteren_writable_i     (ibex_pkg::IbexMuBiOn),
         .alert_minor_o             (),
         .alert_major_internal_o    (),
         .alert_major_bus_o         (),
