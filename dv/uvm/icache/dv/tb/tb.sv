@@ -4,7 +4,8 @@
 //
 import ibex_pkg::*;
 module tb #(
- parameter bit ICacheECC = 1'b1
+ parameter bit ICacheECC = 1'b1,
+ parameter bit ICacheTweakInfection = 1'b1
  );
   // dep packages
   import uvm_pkg::*;
@@ -49,10 +50,11 @@ module tb #(
 
   // DUT
   ibex_icache #(
-      .ICacheECC       (ICacheECC),
-      .BusSizeECC      (BusSizeECC),
-      .TagSizeECC      (TagSizeECC),
-      .LineSizeECC     (LineSizeECC)
+      .ICacheECC            (ICacheECC),
+      .ICacheTweakInfection (ICacheTweakInfection),
+      .BusSizeECC           (BusSizeECC),
+      .TagSizeECC           (TagSizeECC),
+      .LineSizeECC          (LineSizeECC)
   ) dut (
       .clk_i               ( clk                        ),
       .rst_ni              ( rst_n                      ),
@@ -158,7 +160,8 @@ module tb #(
       .rvalid_o         (ram_if.ic_tag_rvalid[way]),
       .raddr_o          (),
       .rerror_o         (),
-      .cfg_i            ('0),
+      .cfg_i            ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .cfg_o            (),
       .wr_collision_o   (),
       .write_pending_o  (),
       .alert_o          ()
@@ -193,7 +196,8 @@ module tb #(
       .rvalid_o         (ram_if.ic_data_rvalid[way]),
       .raddr_o          (),
       .rerror_o         (),
-      .cfg_i            ('0),
+      .cfg_i            ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .cfg_o            (),
       .wr_collision_o   (),
       .write_pending_o  (),
       .alert_o          ()

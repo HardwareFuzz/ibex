@@ -26,6 +26,7 @@ module ibex_lockstep import ibex_pkg::*; #(
   parameter bit                     WritebackStage              = 1'b0,
   parameter bit                     ICache                      = 1'b0,
   parameter bit                     ICacheECC                   = 1'b0,
+  parameter bit                     ICacheTweakInfection        = 1'b0,
   parameter int unsigned            BusSizeECC                  = BUS_SIZE,
   parameter int unsigned            TagSizeECC                  = IC_TAG_SIZE,
   parameter int unsigned            LineSizeECC                 = IC_LINE_SIZE,
@@ -103,6 +104,7 @@ module ibex_lockstep import ibex_pkg::*; #(
   input  logic                         double_fault_seen_i,
 
   input  ibex_mubi_t                   fetch_enable_i,
+  input  ibex_mubi_t                   mcounteren_writable_i,
   output logic                         alert_minor_o,
   output logic                         alert_major_internal_o,
   output logic                         alert_major_bus_o,
@@ -246,6 +248,7 @@ module ibex_lockstep import ibex_pkg::*; #(
     logic                        irq_nm;
     logic                        debug_req;
     ibex_mubi_t                  fetch_enable;
+    ibex_mubi_t                  mcounteren_writable;
     logic                        ic_scr_key_valid;
   } delayed_inputs_t;
 
@@ -309,24 +312,25 @@ module ibex_lockstep import ibex_pkg::*; #(
   end
 
   // Assign the inputs to the delay structure
-  assign shadow_inputs_in.instr_gnt        = instr_gnt_i;
-  assign shadow_inputs_in.instr_rvalid     = instr_rvalid_i;
-  assign shadow_inputs_in.instr_rdata      = instr_rdata_i;
-  assign shadow_inputs_in.instr_err        = instr_err_i;
-  assign shadow_inputs_in.data_gnt         = data_gnt_i;
-  assign shadow_inputs_in.data_rvalid      = data_rvalid_i;
-  assign shadow_inputs_in.data_rdata       = data_rdata_i;
-  assign shadow_inputs_in.data_err         = data_err_i;
-  assign shadow_inputs_in.rf_rdata_a       = rf_rdata_a_i;
-  assign shadow_inputs_in.rf_rdata_b       = rf_rdata_b_i;
-  assign shadow_inputs_in.irq_software     = irq_software_i;
-  assign shadow_inputs_in.irq_timer        = irq_timer_i;
-  assign shadow_inputs_in.irq_external     = irq_external_i;
-  assign shadow_inputs_in.irq_fast         = irq_fast_i;
-  assign shadow_inputs_in.irq_nm           = irq_nm_i;
-  assign shadow_inputs_in.debug_req        = debug_req_i;
-  assign shadow_inputs_in.fetch_enable     = fetch_enable_i;
-  assign shadow_inputs_in.ic_scr_key_valid = ic_scr_key_valid_i;
+  assign shadow_inputs_in.instr_gnt           = instr_gnt_i;
+  assign shadow_inputs_in.instr_rvalid        = instr_rvalid_i;
+  assign shadow_inputs_in.instr_rdata         = instr_rdata_i;
+  assign shadow_inputs_in.instr_err           = instr_err_i;
+  assign shadow_inputs_in.data_gnt            = data_gnt_i;
+  assign shadow_inputs_in.data_rvalid         = data_rvalid_i;
+  assign shadow_inputs_in.data_rdata          = data_rdata_i;
+  assign shadow_inputs_in.data_err            = data_err_i;
+  assign shadow_inputs_in.rf_rdata_a          = rf_rdata_a_i;
+  assign shadow_inputs_in.rf_rdata_b          = rf_rdata_b_i;
+  assign shadow_inputs_in.irq_software        = irq_software_i;
+  assign shadow_inputs_in.irq_timer           = irq_timer_i;
+  assign shadow_inputs_in.irq_external        = irq_external_i;
+  assign shadow_inputs_in.irq_fast            = irq_fast_i;
+  assign shadow_inputs_in.irq_nm              = irq_nm_i;
+  assign shadow_inputs_in.debug_req           = debug_req_i;
+  assign shadow_inputs_in.fetch_enable        = fetch_enable_i;
+  assign shadow_inputs_in.mcounteren_writable = mcounteren_writable_i;
+  assign shadow_inputs_in.ic_scr_key_valid    = ic_scr_key_valid_i;
 
   ///////////////////
   // Output delays //
@@ -415,43 +419,44 @@ module ibex_lockstep import ibex_pkg::*; #(
   logic [RegFileDataEccWidth - RegFileDataWidth - 1:0] shadow_rf_rdata_b_intg;
 
   ibex_core #(
-    .PMPEnable         ( PMPEnable            ),
-    .PMPGranularity    ( PMPGranularity       ),
-    .PMPNumRegions     ( PMPNumRegions        ),
-    .PMPRstCfg         ( PMPRstCfg            ),
-    .PMPRstAddr        ( PMPRstAddr           ),
-    .PMPRstMsecCfg     ( PMPRstMsecCfg        ),
-    .MHPMCounterNum    ( MHPMCounterNum       ),
-    .MHPMCounterWidth  ( MHPMCounterWidth     ),
-    .RV32E             ( RV32E                ),
-    .RV32M             ( RV32M                ),
-    .RV32B             ( RV32B                ),
-    .RV32ZC            ( RV32ZC               ),
-    .BranchTargetALU   ( BranchTargetALU      ),
-    .ICache            ( ICache               ),
-    .ICacheECC         ( ICacheECC            ),
-    .BusSizeECC        ( BusSizeECC           ),
-    .TagSizeECC        ( TagSizeECC           ),
-    .LineSizeECC       ( LineSizeECC          ),
-    .BranchPredictor   ( BranchPredictor      ),
-    .DbgTriggerEn      ( DbgTriggerEn         ),
-    .DbgHwBreakNum     ( DbgHwBreakNum        ),
-    .WritebackStage    ( WritebackStage       ),
-    .ResetAll          ( ResetAll             ),
-    .RndCnstLfsrSeed   ( RndCnstLfsrSeed      ),
-    .RndCnstLfsrPerm   ( RndCnstLfsrPerm      ),
-    .SecureIbex        ( SecureIbex           ),
-    .DummyInstructions ( DummyInstructions    ),
-    .RegFileECC        ( RegFileECC           ),
-    .RegFileDataWidth  ( RegFileDataEccWidth  ),
-    .MemECC            ( MemECC               ),
-    .MemDataWidth      ( MemDataWidth         ),
-    .DmBaseAddr        ( DmBaseAddr           ),
-    .DmAddrMask        ( DmAddrMask           ),
-    .DmHaltAddr        ( DmHaltAddr           ),
-    .DmExceptionAddr   ( DmExceptionAddr      ),
-    .CsrMvendorId      ( CsrMvendorId         ),
-    .CsrMimpId         ( CsrMimpId            )
+    .PMPEnable            ( PMPEnable            ),
+    .PMPGranularity       ( PMPGranularity       ),
+    .PMPNumRegions        ( PMPNumRegions        ),
+    .PMPRstCfg            ( PMPRstCfg            ),
+    .PMPRstAddr           ( PMPRstAddr           ),
+    .PMPRstMsecCfg        ( PMPRstMsecCfg        ),
+    .MHPMCounterNum       ( MHPMCounterNum       ),
+    .MHPMCounterWidth     ( MHPMCounterWidth     ),
+    .RV32E                ( RV32E                ),
+    .RV32M                ( RV32M                ),
+    .RV32B                ( RV32B                ),
+    .RV32ZC               ( RV32ZC               ),
+    .BranchTargetALU      ( BranchTargetALU      ),
+    .ICache               ( ICache               ),
+    .ICacheECC            ( ICacheECC            ),
+    .ICacheTweakInfection ( ICacheTweakInfection ),
+    .BusSizeECC           ( BusSizeECC           ),
+    .TagSizeECC           ( TagSizeECC           ),
+    .LineSizeECC          ( LineSizeECC          ),
+    .BranchPredictor      ( BranchPredictor      ),
+    .DbgTriggerEn         ( DbgTriggerEn         ),
+    .DbgHwBreakNum        ( DbgHwBreakNum        ),
+    .WritebackStage       ( WritebackStage       ),
+    .ResetAll             ( ResetAll             ),
+    .RndCnstLfsrSeed      ( RndCnstLfsrSeed      ),
+    .RndCnstLfsrPerm      ( RndCnstLfsrPerm      ),
+    .SecureIbex           ( SecureIbex           ),
+    .DummyInstructions    ( DummyInstructions    ),
+    .RegFileECC           ( RegFileECC           ),
+    .RegFileDataWidth     ( RegFileDataEccWidth  ),
+    .MemECC               ( MemECC               ),
+    .MemDataWidth         ( MemDataWidth         ),
+    .DmBaseAddr           ( DmBaseAddr           ),
+    .DmAddrMask           ( DmAddrMask           ),
+    .DmHaltAddr           ( DmHaltAddr           ),
+    .DmExceptionAddr      ( DmExceptionAddr      ),
+    .CsrMvendorId         ( CsrMvendorId         ),
+    .CsrMimpId            ( CsrMimpId            )
   ) u_shadow_core (
     .clk_i               (clk_i),
     .rst_ni              (rst_shadow_n),
@@ -552,6 +557,7 @@ module ibex_lockstep import ibex_pkg::*; #(
 `endif
 
     .fetch_enable_i         (shadow_inputs_q[0].fetch_enable),
+    .mcounteren_writable_i  (shadow_inputs_q[0].mcounteren_writable),
     .alert_minor_o          (shadow_alert_minor),
     .alert_major_internal_o (shadow_alert_major_internal),
     .alert_major_bus_o      (shadow_alert_major_bus),

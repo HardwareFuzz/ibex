@@ -89,35 +89,39 @@ Instantiation Template
 .. code-block:: verilog
 
   ibex_top #(
-      .PMPEnable        ( 0                                ),
-      .PMPGranularity   ( 0                                ),
-      .PMPNumRegions    ( 4                                ),
-      .MHPMCounterNum   ( 0                                ),
-      .MHPMCounterWidth ( 40                               ),
-      .RV32E            ( 0                                ),
-      .RV32M            ( ibex_pkg::RV32MFast              ),
-      .RV32B            ( ibex_pkg::RV32BNone              ),
-      .RV32ZC           ( ibex_pkg::RV32ZcaZcbZcmp         ),
-      .RegFile          ( ibex_pkg::RegFileFF              ),
-      .ICache           ( 0                                ),
-      .ICacheECC        ( 0                                ),
-      .ICacheScramble   ( 0                                ),
-      .BranchPrediction ( 0                                ),
-      .SecureIbex       ( 0                                ),
-      .RndCnstLfsrSeed  ( ibex_pkg::RndCnstLfsrSeedDefault ),
-      .RndCnstLfsrPerm  ( ibex_pkg::RndCnstLfsrPermDefault ),
-      .DbgTriggerEn     ( 0                                ),
-      .DmBaseAddr       ( 32'h1A110000                     ),
-      .DmAddrMask       ( 32'h00000FFF                     ),
-      .DmHaltAddr       ( 32'h1A110800                     ),
-      .DmExceptionAddr  ( 32'h1A110808                     )
+      .PMPEnable            ( 0                                ),
+      .PMPGranularity       ( 0                                ),
+      .PMPNumRegions        ( 4                                ),
+      .MHPMCounterNum       ( 0                                ),
+      .MHPMCounterWidth     ( 40                               ),
+      .RV32E                ( 0                                ),
+      .RV32M                ( ibex_pkg::RV32MFast              ),
+      .RV32B                ( ibex_pkg::RV32BNone              ),
+      .RV32ZC               ( ibex_pkg::RV32ZcaZcbZcmp         ),
+      .RegFile              ( ibex_pkg::RegFileFF              ),
+      .ICache               ( 0                                ),
+      .ICacheECC            ( 0                                ),
+      .ICacheTweakInfection ( 0                                ),
+      .ICacheScramble       ( 0                                ),
+      .BranchPrediction     ( 0                                ),
+      .SecureIbex           ( 0                                ),
+      .RndCnstLfsrSeed      ( ibex_pkg::RndCnstLfsrSeedDefault ),
+      .RndCnstLfsrPerm      ( ibex_pkg::RndCnstLfsrPermDefault ),
+      .DbgTriggerEn         ( 0                                ),
+      .DmBaseAddr           ( 32'h1A110000                     ),
+      .DmAddrMask           ( 32'h00000FFF                     ),
+      .DmHaltAddr           ( 32'h1A110800                     ),
+      .DmExceptionAddr      ( 32'h1A110808                     )
   ) u_top (
       // Clock and reset
       .clk_i                    (),
       .rst_ni                   (),
       .test_en_i                (),
       .scan_rst_ni              (),
-      .ram_cfg_i                (),
+      .ram_cfg_icache_tag_i     (),
+      .ram_cfg_icache_tag_o     (),
+      .ram_cfg_icache_data_i    (),
+      .ram_cfg_icache_data_o    (),
 
       // Configuration
       .hart_id_i                (),
@@ -283,8 +287,17 @@ Interfaces
 | ``scan_rst_ni``            | 1                       | in  | Test controlled reset.  If DFT not     |
 |                            |                         |     | used, tie off to 1.                    |
 +----------------------------+-------------------------+-----+----------------------------------------+
-| ``ram_cfg_i``              | 10                      | in  | RAM configuration inputs, routed to    |
-|                            |                         |     | the icache RAMs                        |
+| ``ram_cfg_icache_tag_i``   | ram_1p_cfg_req_t        | in  | Per-way icache tag RAM config input,   |
+|                            |                         |     | routed to the icache tag RAMs          |
++----------------------------+-------------------------+-----+----------------------------------------+
+| ``ram_cfg_icache_tag_o``   | ram_1p_cfg_rsp_t        | out | Per-way icache tag RAM config          |
+|                            |                         |     | response from the icache tag RAMs      |
++----------------------------+-------------------------+-----+----------------------------------------+
+| ``ram_cfg_icache_data_i``  | ram_1p_cfg_req_t        | in  | Per-way icache data RAM config input,  |
+|                            |                         |     | routed to the icache data RAMs         |
++----------------------------+-------------------------+-----+----------------------------------------+
+| ``ram_cfg_icache_data_o``  | ram_1p_cfg_rsp_t        | out | Per-way icache data RAM config         |
+|                            |                         |     | response from the icache data RAMs     |
 +----------------------------+-------------------------+-----+----------------------------------------+
 | ``hart_id_i``              | 32                      | in  | Hart ID, usually static, can be read   |
 |                            |                         |     | from :ref:`csr-mhartid` CSR            |

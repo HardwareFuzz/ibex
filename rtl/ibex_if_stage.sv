@@ -14,22 +14,23 @@
 `include "dv_fcov_macros.svh"
 
 module ibex_if_stage import ibex_pkg::*; #(
-  parameter int unsigned DmHaltAddr        = 32'h1A110800,
-  parameter int unsigned DmExceptionAddr   = 32'h1A110808,
-  parameter bit          DummyInstructions = 1'b0,
-  parameter bit          ICache            = 1'b0,
-  parameter rv32zc_e     RV32ZC            = RV32ZcaZcbZcmp,
-  parameter bit          ICacheECC         = 1'b0,
-  parameter int unsigned BusSizeECC        = BUS_SIZE,
-  parameter int unsigned TagSizeECC        = IC_TAG_SIZE,
-  parameter int unsigned LineSizeECC       = IC_LINE_SIZE,
-  parameter bit          PCIncrCheck       = 1'b0,
-  parameter bit          ResetAll          = 1'b0,
-  parameter lfsr_seed_t  RndCnstLfsrSeed   = RndCnstLfsrSeedDefault,
-  parameter lfsr_perm_t  RndCnstLfsrPerm   = RndCnstLfsrPermDefault,
-  parameter bit          BranchPredictor   = 1'b0,
-  parameter bit          MemECC            = 1'b0,
-  parameter int unsigned MemDataWidth      = MemECC ? 32 + 7 : 32
+  parameter int unsigned DmHaltAddr           = 32'h1A110800,
+  parameter int unsigned DmExceptionAddr      = 32'h1A110808,
+  parameter bit          DummyInstructions    = 1'b0,
+  parameter bit          ICache               = 1'b0,
+  parameter rv32zc_e     RV32ZC               = RV32ZcaZcbZcmp,
+  parameter bit          ICacheECC            = 1'b0,
+  parameter bit          ICacheTweakInfection = 1'b0,
+  parameter int unsigned BusSizeECC           = BUS_SIZE,
+  parameter int unsigned TagSizeECC           = IC_TAG_SIZE,
+  parameter int unsigned LineSizeECC          = IC_LINE_SIZE,
+  parameter bit          PCIncrCheck          = 1'b0,
+  parameter bit          ResetAll             = 1'b0,
+  parameter lfsr_seed_t  RndCnstLfsrSeed      = RndCnstLfsrSeedDefault,
+  parameter lfsr_perm_t  RndCnstLfsrPerm      = RndCnstLfsrPermDefault,
+  parameter bit          BranchPredictor      = 1'b0,
+  parameter bit          MemECC               = 1'b0,
+  parameter int unsigned MemDataWidth         = MemECC ? 32 + 7 : 32
 ) (
   input  logic                         clk_i,
   input  logic                         rst_ni,
@@ -276,7 +277,8 @@ module ibex_if_stage import ibex_pkg::*; #(
       .ResetAll        (ResetAll),
       .BusSizeECC      (BusSizeECC),
       .TagSizeECC      (TagSizeECC),
-      .LineSizeECC     (LineSizeECC)
+      .LineSizeECC     (LineSizeECC),
+      .TweakInfection  (ICacheTweakInfection)
     ) icache_i (
         .clk_i               ( clk_i                      ),
         .rst_ni              ( rst_ni                     ),
@@ -409,6 +411,12 @@ module ibex_if_stage import ibex_pkg::*; #(
   //
   // since it does not matter where we decompress instructions, we do it here
   // to ease timing closure
+
+  // The compressed decoder only has state for the Zcmp expanded instructions. Flush this state if
+  // there is an exception.
+  logic flush_expanded;
+  assign flush_expanded = pc_set_i & (pc_mux_i == ibex_pkg::PC_EXC);
+
   ibex_compressed_decoder #(
     .RV32ZC   (RV32ZC),
     .ResetAll (ResetAll)
@@ -421,6 +429,7 @@ module ibex_if_stage import ibex_pkg::*; #(
     .instr_o        (instr_decompressed),
     .is_compressed_o(instr_is_compressed),
     .gets_expanded_o(instr_gets_expanded),
+    .flush_expanded_i(flush_expanded),
     .illegal_instr_o(illegal_c_insn)
   );
 
@@ -565,7 +574,8 @@ module ibex_if_stage import ibex_pkg::*; #(
     // request, all of which will set branch_req. Also do not check after reset or for dummy
     // instructions.
     assign prev_instr_seq_d = (prev_instr_seq_q | instr_new_id_d) &
-        ~branch_req & ~if_instr_err & ~stall_dummy_instr & !(instr_gets_expanded == INSTR_EXPANDED);
+        ~branch_req & ~if_instr_err & ~stall_dummy_instr &
+        !(instr_gets_expanded inside {INSTR_EXPANDED, INSTR_EXPANDED_COMMIT});
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
@@ -628,7 +638,8 @@ module ibex_if_stage import ibex_pkg::*; #(
     assign instr_skid_en = predict_branch_taken & ~pc_set_i & ~id_in_ready_i & ~instr_skid_valid_q;
 
     assign instr_skid_valid_d = (instr_skid_valid_q & ~id_in_ready_i & ~stall_dummy_instr &
-                                 !(instr_gets_expanded == INSTR_EXPANDED)) | instr_skid_en;
+                                 !(instr_gets_expanded inside
+                                 {INSTR_EXPANDED, INSTR_EXPANDED_COMMIT})) | instr_skid_en;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
@@ -687,7 +698,8 @@ module ibex_if_stage import ibex_pkg::*; #(
     assign instr_bp_taken_d = instr_skid_valid_q ? instr_skid_bp_taken_q : predict_branch_taken;
 
     assign fetch_ready = id_in_ready_i & ~stall_dummy_instr &
-                         !(instr_gets_expanded == INSTR_EXPANDED) & ~instr_skid_valid_q;
+                         !(instr_gets_expanded inside {INSTR_EXPANDED, INSTR_EXPANDED_COMMIT}) &
+                         ~instr_skid_valid_q;
 
     assign instr_bp_taken_o = instr_bp_taken_q;
 
@@ -703,7 +715,7 @@ module ibex_if_stage import ibex_pkg::*; #(
     assign if_instr_addr  = fetch_addr;
     assign if_instr_bus_err = fetch_err;
     assign fetch_ready = id_in_ready_i & ~stall_dummy_instr &
-                         !(instr_gets_expanded == INSTR_EXPANDED);
+                         !(instr_gets_expanded inside {INSTR_EXPANDED, INSTR_EXPANDED_COMMIT});
   end
 
   //////////

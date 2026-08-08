@@ -61,10 +61,11 @@ module ibex_simple_system (
   parameter bit                 ICache                   = 1'b0;
   parameter bit                 DbgTriggerEn             = 1'b0;
   parameter bit                 ICacheECC                = 1'b0;
+  parameter bit                 ICacheTweakInfection     = 1'b0;
   parameter bit                 BranchPredictor          = 1'b0;
   parameter                     SRAMInitFile             = "";
 
-  logic clk_sys = 1'b0, rst_sys_n;
+  logic clk_sys, rst_sys_n;
 
   typedef enum logic {
     CoreD
@@ -136,9 +137,12 @@ module ibex_simple_system (
       #8
       rst_sys_n = 1'b1;
     end
-    always begin
-      #1 clk_sys = 1'b0;
-      #1 clk_sys = 1'b1;
+    initial begin
+      clk_sys = 1'b0;
+      forever begin
+        #1 clk_sys = 1'b0;
+        #1 clk_sys = 1'b1;
+      end
     end
   `endif
 
@@ -197,39 +201,40 @@ module ibex_simple_system (
   end
 
   ibex_top_tracing #(
-      .SecureIbex      ( SecureIbex       ),
-      .LockstepOffset  ( LockstepOffset   ),
-      .ICacheScramble  ( ICacheScramble   ),
-      .PMPEnable       ( PMPEnable        ),
-      .PMPGranularity  ( PMPGranularity   ),
-      .PMPNumRegions   ( PMPNumRegions    ),
-      .MHPMCounterNum  ( MHPMCounterNum   ),
-      .MHPMCounterWidth( MHPMCounterWidth ),
-      .RV32E           ( RV32E            ),
-      .RV32M           ( RV32M            ),
-      .RV32B           ( RV32B            ),
-      .RV32ZC          ( RV32ZC           ),
-      .RegFile         ( RegFile          ),
-      .BranchTargetALU ( BranchTargetALU  ),
-      .ICache          ( ICache           ),
-      .ICacheECC       ( ICacheECC        ),
-      .WritebackStage  ( WritebackStage   ),
-      .BranchPredictor ( BranchPredictor  ),
-      .DbgTriggerEn    ( DbgTriggerEn     ),
-      .DmBaseAddr      ( 32'h00100000     ),
-      .DmAddrMask      ( 32'h00000003     ),
-      .DmHaltAddr      ( 32'h00100000     ),
-      .DmExceptionAddr ( 32'h00100000     )
+      .SecureIbex           ( SecureIbex           ),
+      .LockstepOffset       ( LockstepOffset       ),
+      .ICacheScramble       ( ICacheScramble       ),
+      .PMPEnable            ( PMPEnable            ),
+      .PMPGranularity       ( PMPGranularity       ),
+      .PMPNumRegions        ( PMPNumRegions        ),
+      .MHPMCounterNum       ( MHPMCounterNum       ),
+      .MHPMCounterWidth     ( MHPMCounterWidth     ),
+      .RV32E                ( RV32E                ),
+      .RV32M                ( RV32M                ),
+      .RV32B                ( RV32B                ),
+      .RV32ZC               ( RV32ZC               ),
+      .RegFile              ( RegFile              ),
+      .BranchTargetALU      ( BranchTargetALU      ),
+      .ICache               ( ICache               ),
+      .ICacheECC            ( ICacheECC            ),
+      .ICacheTweakInfection ( ICacheTweakInfection ),
+      .WritebackStage       ( WritebackStage       ),
+      .BranchPredictor      ( BranchPredictor      ),
+      .DbgTriggerEn         ( DbgTriggerEn         ),
+      .DmBaseAddr           ( 32'h00100000         ),
+      .DmAddrMask           ( 32'h00000003         ),
+      .DmHaltAddr           ( 32'h00100000         ),
+      .DmExceptionAddr      ( 32'h00100000         )
     ) u_top (
       .clk_i                     (clk_sys),
       .rst_ni                    (rst_sys_n),
 
       .test_en_i                 (1'b0),
       .scan_rst_ni               (1'b1),
-      .ram_cfg_icache_tag_i      (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-      .ram_cfg_rsp_icache_tag_o  (),
-      .ram_cfg_icache_data_i     (prim_ram_1p_pkg::RAM_1P_CFG_DEFAULT),
-      .ram_cfg_rsp_icache_data_o (),
+      .ram_cfg_icache_tag_i      ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .ram_cfg_icache_tag_o      (),
+      .ram_cfg_icache_data_i     ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .ram_cfg_icache_data_o     (),
 
       .hart_id_i                 (32'b0),
       // First instruction executed is at 0x0 + 0x80
@@ -271,6 +276,7 @@ module ibex_simple_system (
       .double_fault_seen_o       (),
 
       .fetch_enable_i            (ibex_pkg::IbexMuBiOn),
+      .mcounteren_writable_i     (ibex_pkg::IbexMuBiOn),
       .alert_minor_o             (),
       .alert_major_internal_o    (),
       .alert_major_bus_o         (),

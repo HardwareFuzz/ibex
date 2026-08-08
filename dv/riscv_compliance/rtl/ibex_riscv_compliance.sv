@@ -29,6 +29,7 @@ module ibex_riscv_compliance (
   parameter bit WritebackStage            = 1'b0;
   parameter bit ICache                    = 1'b0;
   parameter bit ICacheECC                 = 1'b0;
+  parameter bit ICacheTweakInfection      = 1'b0;
   parameter bit BranchPredictor           = 1'b0;
   parameter bit SecureIbex                = 1'b0;
   parameter int unsigned LockstepOffset   = 1;
@@ -140,39 +141,40 @@ module ibex_riscv_compliance (
   end
 
   ibex_top_tracing #(
-      .PMPEnable        (PMPEnable         ),
-      .PMPGranularity   (PMPGranularity    ),
-      .PMPNumRegions    (PMPNumRegions     ),
-      .MHPMCounterNum   (MHPMCounterNum    ),
-      .MHPMCounterWidth (MHPMCounterWidth  ),
-      .RV32E            (RV32E             ),
-      .RV32M            (RV32M             ),
-      .RV32B            (RV32B             ),
-      .RV32ZC           (RV32ZC            ),
-      .RegFile          (RegFile           ),
-      .BranchTargetALU  (BranchTargetALU   ),
-      .WritebackStage   (WritebackStage    ),
-      .ICache           (ICache            ),
-      .ICacheECC        (ICacheECC         ),
-      .BranchPredictor  (BranchPredictor   ),
-      .DbgTriggerEn     (DbgTriggerEn      ),
-      .SecureIbex       (SecureIbex        ),
-      .LockstepOffset   (LockstepOffset    ),
-      .ICacheScramble   (ICacheScramble    ),
-      .DmBaseAddr       (32'h00000000      ),
-      .DmAddrMask       (32'h00000003      ),
-      .DmHaltAddr       (32'h00000000      ),
-      .DmExceptionAddr  (32'h00000000      )
+      .PMPEnable            (PMPEnable           ),
+      .PMPGranularity       (PMPGranularity      ),
+      .PMPNumRegions        (PMPNumRegions       ),
+      .MHPMCounterNum       (MHPMCounterNum      ),
+      .MHPMCounterWidth     (MHPMCounterWidth    ),
+      .RV32E                (RV32E               ),
+      .RV32M                (RV32M               ),
+      .RV32B                (RV32B               ),
+      .RV32ZC               (RV32ZC              ),
+      .RegFile              (RegFile             ),
+      .BranchTargetALU      (BranchTargetALU     ),
+      .WritebackStage       (WritebackStage      ),
+      .ICache               (ICache              ),
+      .ICacheECC            (ICacheECC           ),
+      .ICacheTweakInfection (ICacheTweakInfection),
+      .BranchPredictor      (BranchPredictor     ),
+      .DbgTriggerEn         (DbgTriggerEn        ),
+      .SecureIbex           (SecureIbex          ),
+      .LockstepOffset       (LockstepOffset      ),
+      .ICacheScramble       (ICacheScramble      ),
+      .DmBaseAddr           (32'h00000000        ),
+      .DmAddrMask           (32'h00000003        ),
+      .DmHaltAddr           (32'h00000000        ),
+      .DmExceptionAddr      (32'h00000000        )
     ) u_top (
       .clk_i                     (clk_sys              ),
       .rst_ni                    (rst_sys_n            ),
 
       .test_en_i                 ('b0                  ),
       .scan_rst_ni               (1'b1                 ),
-      .ram_cfg_icache_tag_i      ('b0                  ),
-      .ram_cfg_rsp_icache_tag_o  (                     ),
-      .ram_cfg_icache_data_i     ('b0                  ),
-      .ram_cfg_rsp_icache_data_o (                     ),
+      .ram_cfg_icache_tag_i      ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .ram_cfg_icache_tag_o      (                     ),
+      .ram_cfg_icache_data_i     ('{default: prim_ram_1p_pkg::RAM_1P_CFG_REQ_DEFAULT}),
+      .ram_cfg_icache_data_o     (                     ),
 
       .hart_id_i                 (32'b0                ),
       // First instruction executed is at 0x0 + 0x80
@@ -214,6 +216,7 @@ module ibex_riscv_compliance (
       .double_fault_seen_o       (                     ),
 
       .fetch_enable_i            (ibex_pkg::IbexMuBiOn ),
+      .mcounteren_writable_i     (ibex_pkg::IbexMuBiOn ),
       .alert_minor_o             (                     ),
       .alert_major_internal_o    (                     ),
       .alert_major_bus_o         (                     ),
