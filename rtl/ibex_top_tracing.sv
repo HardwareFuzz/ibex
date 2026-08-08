@@ -186,8 +186,15 @@ module ibex_top_tracing import ibex_pkg::*; #(
   logic [63:0] trace_cycle;
   logic [63:0] trace_cycle_now;
   logic [63:0] trace_id_start_cycle_q;
+  logic [63:0] trace_next_alloc_token_q;
+  logic [63:0] trace_id_token_q;
+  logic        trace_id_token_live_q;
   logic [63:0] trace_rvfi_start_cycle_q [TraceRvfiStages];
+  logic [63:0] trace_rvfi_end_cycle_q [TraceRvfiStages];
+  logic [63:0] trace_rvfi_token_q [TraceRvfiStages];
   logic [63:0] rvfi_trace_start_cycle;
+  logic [63:0] rvfi_trace_end_cycle;
+  logic [63:0] rvfi_trace_token;
 
   // Tracer doesn't use these signals, though other modules may probe down into tracer to observe
   // them.
@@ -206,33 +213,63 @@ module ibex_top_tracing import ibex_pkg::*; #(
   assign unused_rvfi_ext_expanded_insn_last = rvfi_ext_expanded_insn_last;
   assign trace_cycle_now = rst_ni ? (trace_cycle + 64'd1) : 64'd0;
   assign rvfi_trace_start_cycle = trace_rvfi_start_cycle_q[TraceRvfiStages-1];
+  assign rvfi_trace_end_cycle = trace_rvfi_end_cycle_q[TraceRvfiStages-1];
+  assign rvfi_trace_token = trace_rvfi_token_q[TraceRvfiStages-1];
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     logic [63:0] next_cycle;
     logic [63:0] id_start_cycle_d;
+    logic [63:0] id_token_d;
 
     if (!rst_ni) begin
       trace_cycle <= 64'd0;
       trace_id_start_cycle_q <= 64'd0;
+      trace_next_alloc_token_q <= 64'd0;
+      trace_id_token_q <= 64'd0;
+      trace_id_token_live_q <= 1'b0;
       for (int idx = 0; idx < TraceRvfiStages; idx++) begin
         trace_rvfi_start_cycle_q[idx] <= 64'd0;
+        trace_rvfi_end_cycle_q[idx] <= 64'd0;
+        trace_rvfi_token_q[idx] <= 64'd0;
       end
     end else begin
       next_cycle = trace_cycle + 64'd1;
       trace_cycle <= next_cycle;
       id_start_cycle_d = trace_id_start_cycle_q;
+      id_token_d = trace_id_token_q;
 
-      if (u_ibex_top.u_ibex_core.instr_valid_id && u_ibex_top.u_ibex_core.instr_first_cycle_id) begin
+      // instr_first_cycle_id remains asserted while a first-cycle instruction
+      // is stalled. Gate it with the live bit so start/token are allocated
+      // exactly once and are not reset by dependency or memory stalls.
+      if (u_ibex_top.u_ibex_core.instr_valid_id &&
+          u_ibex_top.u_ibex_core.instr_first_cycle_id &&
+          !trace_id_token_live_q) begin
         id_start_cycle_d = next_cycle;
+        id_token_d = trace_next_alloc_token_q;
         trace_id_start_cycle_q <= next_cycle;
+        trace_id_token_q <= trace_next_alloc_token_q;
+        trace_next_alloc_token_q <= trace_next_alloc_token_q + 64'd1;
+        trace_id_token_live_q <= 1'b1;
       end
 
       if (u_ibex_top.u_ibex_core.rvfi_id_done) begin
         trace_rvfi_start_cycle_q[0] <= id_start_cycle_d;
+        trace_rvfi_token_q[0] <= id_token_d;
+        // This is the architectural terminal edge without a WB stage and the
+        // precise exception edge with either configuration.
+        trace_rvfi_end_cycle_q[0] <= next_cycle;
+        trace_id_token_live_q <= 1'b0;
+      end else if (u_ibex_top.u_ibex_core.id_stage_i.controller_i.flush_id_o) begin
+        // A non-terminal redirect/interrupt flush consumes the allocation
+        // token but produces no instruction terminal record.
+        trace_id_token_live_q <= 1'b0;
       end
 
       if (WritebackStage && u_ibex_top.u_ibex_core.rvfi_wb_done) begin
         trace_rvfi_start_cycle_q[1] <= trace_rvfi_start_cycle_q[0];
+        trace_rvfi_end_cycle_q[1] <= u_ibex_top.u_ibex_core.rvfi_stage_trap[0] ?
+                                     trace_rvfi_end_cycle_q[0] : next_cycle;
+        trace_rvfi_token_q[1] <= trace_rvfi_token_q[0];
       end
     end
   end
@@ -385,7 +422,10 @@ module ibex_top_tracing import ibex_pkg::*; #(
 
     .hart_id_i,
     .trace_cycle(trace_cycle_now),
+    .rvfi_ext_irq_valid,
     .rvfi_trace_start_cycle(rvfi_trace_start_cycle),
+    .rvfi_trace_end_cycle(rvfi_trace_end_cycle),
+    .rvfi_trace_token(rvfi_trace_token),
 
     .rvfi_valid,
     .rvfi_order,

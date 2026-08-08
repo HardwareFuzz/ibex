@@ -40,7 +40,10 @@ module ibex_tracer (
 
   input logic [31:0] hart_id_i,
   input logic [63:0] trace_cycle,
+  input logic        rvfi_ext_irq_valid,
   input logic [63:0] rvfi_trace_start_cycle,
+  input logic [63:0] rvfi_trace_end_cycle,
+  input logic [63:0] rvfi_trace_token,
 
   // RVFI as described at https://github.com/SymbioticEDA/riscv-formal/blob/master/docs/rvfi.md
   // The standard interface does not have _i/_o suffixes. For consistency with the standard the
@@ -104,7 +107,12 @@ module ibex_tracer (
   logic [4:0] data_accessed;
 
   logic trace_log_enable;
+  int unsigned trace_harts;
+  logic [63:0] trace_terminal_seq_q;
+  logic [63:0] trace_instret_seq_q;
   initial begin
+    trace_harts = 1;
+    void'($value$plusargs("num_harts=%d", trace_harts));
     if ($value$plusargs("ibex_tracer_enable=%b", trace_log_enable)) begin
       if (trace_log_enable == 1'b0) begin
         $display("%m: Instruction trace disabled.");
@@ -141,7 +149,7 @@ module ibex_tracer (
     end
 
     $fwrite(fh, "%15t\t%0d\t%h\t%s\t%s\t",
-            $time, trace_cycle, rvfi_pc_rdata, rvfi_insn_str, decoded_str);
+            $time, rvfi_trace_end_cycle, rvfi_pc_rdata, rvfi_insn_str, decoded_str);
 
     if ((data_accessed & RS1) != 0) begin
       $fwrite(fh, " %s:0x%08x", reg_addr_to_str(rvfi_rs1_addr), rvfi_rs1_rdata);
@@ -203,9 +211,35 @@ module ibex_tracer (
     end
     if (rvfi_halt) $fwrite(fh, " HALT");
     $fwrite(fh, " clk_start:%0d clk_end:%0d clk_span:%0d",
-            rvfi_trace_start_cycle, trace_cycle, trace_cycle - rvfi_trace_start_cycle + 1);
+            rvfi_trace_start_cycle, rvfi_trace_end_cycle,
+            rvfi_trace_end_cycle - rvfi_trace_start_cycle + 1);
+    // Append machine-readable identity and terminal semantics after the legacy
+    // fields so existing human/legacy trace readers continue to work.
+    $fwrite(fh,
+            " hart:%0d token:%0d term_seq:%0d instret_seq:%0d retired:%0d trap:%0d intr:%0d start_kind:backend_alloc",
+            hart_id_i, rvfi_trace_token, trace_terminal_seq_q, trace_instret_seq_q,
+            !rvfi_trap, rvfi_trap, rvfi_intr);
+    if (rvfi_trap) $fwrite(fh, " end_kind:precise_trap");
+    else           $fwrite(fh, " end_kind:arch_commit");
 
     $fwrite(fh, "\n");
+    $fwrite(fh,
+            "CXTRACE v=2 event=inst_terminal core=ibex hart=%0d token=%0d term_seq=%0d ",
+            hart_id_i, rvfi_trace_token, trace_terminal_seq_q);
+    if (rvfi_trap) $fwrite(fh, "instret_seq=- ");
+    else           $fwrite(fh, "instret_seq=%0d ", trace_instret_seq_q);
+    $fwrite(fh,
+            "commit_slot=0 pc=0x%08x insn=0x%08x insn_len=%0d start_cycle=%0d end_cycle=%0d span=%0d start_kind=backend_alloc ",
+            rvfi_pc_rdata, rvfi_insn, rvfi_insn[1:0] == 2'b11 ? 4 : 2,
+            rvfi_trace_start_cycle, rvfi_trace_end_cycle,
+            rvfi_trace_end_cycle - rvfi_trace_start_cycle + 1);
+    if (rvfi_trap)
+      $fwrite(fh,
+              "end_kind=precise_trap retired=0 trap=1 cause=0x%08x priv=%0d\n",
+              exc_cause_to_mcause(exc_cause), rvfi_mode);
+    else
+      $fwrite(fh, "end_kind=arch_commit retired=1 trap=0 cause=none priv=%0d\n",
+              rvfi_mode);
   endfunction
 
 
@@ -908,24 +942,65 @@ module ibex_tracer (
 
   // log execution
   always @(posedge clk_i) begin
-    if (rvfi_valid && trace_log_enable) begin
-
-      int fh;
-      fh = file_handle;
-
-      if (fh == 32'h0) begin
-        string file_name_base;
-        file_name_base = "trace_core";
-        void'($value$plusargs("ibex_tracer_file_base=%s", file_name_base));
-        $sformat(file_name, "%s_%h.log", file_name_base, hart_id_i);
-
-        $display("%m: Writing execution trace to %s", file_name);
-        fh = $fopen(file_name, "w");
-        file_handle <= fh;
-        $fwrite(fh, "Time\tCycle\tPC\tInsn\tDecoded instruction\tRegister and memory contents\n");
+    if (!rst_ni) begin
+      trace_terminal_seq_q <= 64'd0;
+      trace_instret_seq_q <= 64'd0;
+    end else begin
+      if (rvfi_ext_irq_valid && trace_log_enable) begin
+        int irq_fh;
+        irq_fh = file_handle;
+        if (irq_fh == 32'h0) begin
+          string irq_file_name_base;
+          irq_file_name_base = "trace_core";
+          void'($value$plusargs("ibex_tracer_file_base=%s", irq_file_name_base));
+          $sformat(file_name, "%s_%h.log", irq_file_name_base, hart_id_i);
+          irq_fh = $fopen(file_name, "w");
+          file_handle <= irq_fh;
+          $fwrite(irq_fh, "Time\tCycle\tPC\tInsn\tDecoded instruction\tRegister and memory contents\n");
+          $fwrite(irq_fh,
+                  "CXTRACE_HEADER v=2 core=ibex hart=%0d harts=%0d isa=rv32imc build_config=ibex_top_tracing cycle_domain=core_ref_clk cycle_base=first_post_reset_posedge_is_1 interval=inclusive start_kind=backend_alloc end_kind=arch_commit_or_precise_trap\n",
+                  hart_id_i, trace_harts);
+        end
+        $fwrite(irq_fh,
+                "CXTRACE v=2 event=interrupt core=ibex hart=%0d cycle=%0d cause=0x%08x priv=%0d\n",
+                hart_id_i, trace_cycle, exc_cause_to_mcause(exc_cause), rvfi_mode);
       end
+      if (rvfi_valid) begin
+      if (rvfi_trace_start_cycle == 0 || rvfi_trace_end_cycle < rvfi_trace_start_cycle)
+        $error("Ibex trace timing invariant failed: hart=%0d token=%0d start=%0d end=%0d",
+               hart_id_i, rvfi_trace_token, rvfi_trace_start_cycle, rvfi_trace_end_cycle);
 
-      printbuffer_dumpline(fh);
+      // rvfi_ext_irq_valid is the interrupt-only notification path and never
+      // reaches this block. rvfi_intr merely marks the first real instruction
+      // in the handler, so it remains a normal retired instruction unless it
+      // also has rvfi_trap set.
+      trace_terminal_seq_q <= trace_terminal_seq_q + 64'd1;
+      if (!rvfi_trap)
+        trace_instret_seq_q <= trace_instret_seq_q + 64'd1;
+
+      if (trace_log_enable) begin
+
+        int fh;
+        fh = file_handle;
+
+        if (fh == 32'h0) begin
+          string file_name_base;
+          file_name_base = "trace_core";
+          void'($value$plusargs("ibex_tracer_file_base=%s", file_name_base));
+          $sformat(file_name, "%s_%h.log", file_name_base, hart_id_i);
+
+          $display("%m: Writing execution trace to %s", file_name);
+          fh = $fopen(file_name, "w");
+          file_handle <= fh;
+          $fwrite(fh, "Time\tCycle\tPC\tInsn\tDecoded instruction\tRegister and memory contents\n");
+          $fwrite(fh,
+                  "CXTRACE_HEADER v=2 core=ibex hart=%0d harts=%0d isa=rv32imc build_config=ibex_top_tracing cycle_domain=core_ref_clk cycle_base=first_post_reset_posedge_is_1 interval=inclusive start_kind=backend_alloc end_kind=arch_commit_or_precise_trap\n",
+                  hart_id_i, trace_harts);
+        end
+
+        printbuffer_dumpline(fh);
+      end
+      end
     end
   end
 
